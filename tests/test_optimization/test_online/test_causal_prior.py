@@ -122,3 +122,30 @@ def test_prior_failure_blocks_reuse_until_fit_resets_all_state():
     assert len(estimator.prior_estimator_.rows_) == 1
     assert estimator.n_observations_ == 1
     assert not hasattr(source, "rows_")
+
+
+class AlignedPrior(RecordingPrior):
+    def partial_fit(self, X, y=None, signals=None):
+        assert_allclose(signals, np.asarray(X)[:, 0])
+        assert_allclose(y, np.asarray(X)[:, 1])
+        return super().partial_fit(X, y, signals)
+
+
+def test_online_evaluation_routes_prior_metadata_through_warmup():
+    from skfolio.model_selection import online_predict
+
+    X = np.random.default_rng(261).normal(0, 0.01, (8, 2))
+    with config_context(enable_metadata_routing=True):
+        model = FollowTheWinner(
+            prior_estimator=AlignedPrior().set_partial_fit_request(signals=True),
+            portfolio_params={"weight_drift": True},
+        )
+        result = online_predict(
+            model,
+            X,
+            y=X[:, 1],
+            warmup_size=3,
+            test_size=1,
+            params={"signals": X[:, 0]},
+        )
+    assert len(result.returns) == 5
