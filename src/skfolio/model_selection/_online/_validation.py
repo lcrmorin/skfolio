@@ -628,6 +628,15 @@ def _online_walk_forward(
             "Online portfolio selection does not support purged execution gaps"
         )
 
+    if getattr(estimator, "_requires_single_period_evaluation", False):
+        expected_start = int(splits[0][0][-1]) + 1
+        for train, test in splits:
+            if int(test[0]) != expected_start or int(train[-1]) + 1 != expected_start:
+                raise ValueError(
+                    "Online portfolio selection requires contiguous execution"
+                )
+            expected_start = int(test[-1]) + 1
+
     # WalkForward with expand_train=True produces contiguous index arrays,
     # so converting first/last to a slice is safe and avoids a copy.
     initial_train = splits[0][0]

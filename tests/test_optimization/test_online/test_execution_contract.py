@@ -196,3 +196,116 @@ def test_failure_also_blocks_prediction():
         model.partial_fit([0.1, -0.1])
     with pytest.raises(RuntimeError, match="reset"):
         model.predict([[0.0, 0.0]])
+
+
+@pytest.mark.parametrize("kind", ["winner", "loser"])
+def test_optional_target_history_does_not_change_learning(kind):
+    from sklearn.base import clone
+
+    model = (
+        FollowTheWinner(learning_rate=0.2)
+        if kind == "winner"
+        else FollowTheLoser(strategy="olmar")
+    )
+    X = np.random.default_rng(52).normal(0, 0.01, (20, 3))
+    expected = clone(model).fit(X)
+    model.set_params(store_weights=False).fit(X)
+    assert_allclose(model.weights_, expected.weights_)
+    assert not hasattr(model, "all_weights_")
+    model.partial_fit(X[:1])
+    assert not hasattr(model, "all_weights_")
+
+
+def test_named_holdings_align_to_feature_order_and_are_not_mutated():
+    import pandas as pd
+
+    holdings = {"b": 0.8, "a": 0.2}
+    model = FollowTheWinner(max_turnover=0, previous_weights=holdings)
+    model.partial_fit(pd.DataFrame([[0.2, -0.1]], columns=["a", "b"]))
+    assert_allclose(model.weights_, [0.2, 0.8])
+    assert holdings == {"b": 0.8, "a": 0.2}
+    assert not model._execution_anchor.flags.writeable
+
+
+def test_entry_override_is_not_applied_to_later_rebalances():
+    from skfolio.model_selection import online_predict
+
+    model = FollowTheWinner(
+        learning_rate=0.5,
+        max_turnover=0,
+        previous_weights=[0.0, 0.0],
+        portfolio_params={"weight_drift": True},
+    )
+    X = np.array([[0.2, -0.1], [-0.1, 0.2], [0.1, 0.2], [0.2, -0.1], [0.1, -0.1]])
+    with pytest.raises(ValueError, match="Infeasible"):
+        online_predict(model, X, warmup_size=2, test_size=1)
+    path = online_predict(
+        model,
+        X,
+        warmup_size=2,
+        test_size=1,
+        entry_rebalancing_params={"max_turnover": None},
+    )
+    for prev, p in zip(list(path)[:-1], list(path)[1:], strict=True):
+        assert_allclose(p.weights, prev.ending_weights, atol=1e-7)
+    assert model.max_turnover == 0
+
+
+def test_cost_aware_blocks_require_execution_context():
+    model = FollowTheLoser(
+        strategy="pamr", transaction_costs=0.01, previous_weights=[0.5, 0.5]
+    )
+    with pytest.raises(ValueError, match="row-aligned"):
+        model.partial_fit([[0.1, -0.1], [-0.1, 0.1]])
+    model.fit([[0.1, -0.1], [-0.1, 0.1]])
+    assert model.n_observations_ == 2
+
+
+def test_purged_evaluation_rejected_before_learning():
+    from skfolio.model_selection import online_predict
+
+    with pytest.raises(ValueError, match="purged"):
+        online_predict(
+            FollowTheWinner(),
+            np.zeros((12, 2)),
+            warmup_size=3,
+            test_size=1,
+            purged_size=1,
+        )
+
+
+@pytest.mark.parametrize("kind", ["winner", "loser"])
+def test_grid_search_refits_last_without_extra_execution(kind):
+    from skfolio.model_selection import OnlineGridSearch, online_predict
+
+    model = (
+        FollowTheWinner(learning_rate=0.1)
+        if kind == "winner"
+        else FollowTheLoser(strategy="pamr")
+    )
+    model.set_params(
+        previous_weights=[0.5, 0.5],
+        max_turnover=0.1,
+        portfolio_params={"weight_drift": True},
+    )
+    X = np.random.default_rng(9).normal(0.001, 0.01, (18, 2))
+    search = OnlineGridSearch(
+        model, param_grid={"learning_rate": [0.05, 0.1]}, warmup_size=4, test_size=1
+    ).fit(X)
+    assert search.best_estimator_.n_observations_ == len(X)
+    assert not hasattr(search.best_estimator_, "wealth_")
+    path = online_predict(search.best_estimator_, X, warmup_size=4, test_size=1)
+    assert len(path.returns) == len(X) - 4
+
+
+def test_nonfinite_candidate_invalidates_stream(monkeypatch):
+    model = FollowTheWinner().partial_fit([0.01, -0.01])
+
+    def invalid_update(row):
+        model.weights_ = np.array([np.nan, np.nan])
+
+    monkeypatch.setattr(model, "_update_one", invalid_update)
+    with pytest.raises(RuntimeError, match="invalid target"):
+        model.partial_fit([0.0, 0.0])
+    with pytest.raises(RuntimeError, match="reset"):
+        model.predict([[0.0, 0.0]])

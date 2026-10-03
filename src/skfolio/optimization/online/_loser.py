@@ -169,7 +169,7 @@ class FollowTheLoser(BaseOnlineOptimization):
 
     apply_fees_to_phi : bool, default=True
         Whether to apply management fees to reversion predictor phi.
-        If True, phi is scaled by (1 - fees) to account for fee drag.
+        If True, subtract per-period fees once from the gross return forecast.
 
     mirror : str, default="euclidean"
         Mirror map for MD mode:
@@ -185,20 +185,15 @@ class FollowTheLoser(BaseOnlineOptimization):
     initial_weights : array-like of shape (n_assets,) | None, default=None
         Initial portfolio weights. If None, uses uniform weights (1/n_assets).
 
+    store_weights : bool, default=True
+        Record diagnostic algorithm targets in ``all_weights_``. Set False for
+        bounded-memory streaming. These targets do not imply executed trades.
+
     initial_wealth : float | array-like of shape (n_assets,) | None, default=None
-        Initial portfolio wealth for tracking purposes only (does not affect optimization).
-
-        - If float: Total initial wealth (e.g., 100000.0 for $100k)
-        - If array: Per-asset initial dollar amounts (e.g., [10000, 20000, 30000]).
-          If `initial_weights` not provided, weights are computed proportionally.
-        - If None: Defaults to 1.0 (unit wealth)
-
-        Note: If both `initial_wealth` and `initial_weights` are arrays, raises ValueError.
-
-        The estimator tracks:
-
-        - `wealth_` : Current portfolio wealth (updated each period)
-        - `all_wealth_` : Historical wealth after each period (shape (T+1,))
+        Legacy allocation initializer. An array defines proportional initial
+        weights and cannot be combined with ``initial_weights``. A positive
+        scalar does not affect normalized returns. No account or wealth path
+        is maintained by this estimator; use portfolio evaluation for that.
 
     previous_weights : array-like of shape (n_assets,) | None, default=None
         Previous weights for computing transaction costs and turnover.
@@ -331,6 +326,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         apply_fees_to_phi: bool = True,
         mirror: Literal["euclidean", "entropy"] = "euclidean",
         warm_start: bool = True,
+        store_weights: bool = True,
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: npt.ArrayLike | None = None,
@@ -353,6 +349,7 @@ class FollowTheLoser(BaseOnlineOptimization):
     ) -> None:
         super().__init__(
             warm_start=warm_start,
+            store_weights=store_weights,
             initial_weights=initial_weights,
             initial_wealth=initial_wealth,
             previous_weights=previous_weights,
@@ -672,9 +669,9 @@ class FollowTheLoser(BaseOnlineOptimization):
         # Apply management fees to gross relatives
         x_t = self._compute_effective_relatives(x_t_gross)
 
-        # Store current weights for trading
+        # Retain the previous algorithm target; this does not execute a trade.
         trade_w = self.weights_.copy()
-        self._last_trade_weights_ = trade_w
+        self._previous_target_ = trade_w
 
         # Compute effective predictor (OLMAR only)
         phi = self._compute_predictor(

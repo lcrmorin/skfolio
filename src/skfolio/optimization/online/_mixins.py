@@ -87,6 +87,7 @@ class OLMARPredictor(AutoEnum):
 class OnlineParameterConstraintsMixin:
     _parameter_constraints: ClassVar[dict] = {
         "warm_start": ["boolean"],
+        "store_weights": ["boolean"],
         "initial_weights": ["array-like", None],
         # initial_wealth accepts: scalar float > 0, array of floats summing > 0, or None
         "initial_wealth": [

@@ -68,7 +68,7 @@ class FollowTheWinner(BaseOnlineOptimization):
 
     Fitting
     -------
-    - :meth:`fit` iterates over ``X`` row by row, calling :meth:`partial_fit` on each row to preserve online/sequential updates.
+    - :meth:`fit` iterates over ``X`` row by row, processing each observation causally through the shared learning loop.
 
     References
     ----------
@@ -119,6 +119,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         learning_rate_scale: Literal["theory", "moderate", "empirical"] = "theory",
         update_mode: Literal["ftrl", "omd"] = "ftrl",
         warm_start: bool = True,
+        store_weights: bool = True,
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: skt.MultiInput | None = None,
@@ -226,20 +227,15 @@ class FollowTheWinner(BaseOnlineOptimization):
         initial_weights : array-like of shape (n_assets,) | None, default=None
             Initial portfolio weights. If None, uses uniform weights (1/n_assets).
 
+        store_weights : bool, default=True
+            Record diagnostic algorithm targets in ``all_weights_``. Set False for
+            bounded-memory streaming. These targets do not imply executed trades.
+
         initial_wealth : float | array-like of shape (n_assets,) | None, default=None
-            Initial portfolio wealth for tracking purposes only (does not affect optimization).
-
-            - If float: Total initial wealth (e.g., 100000.0 for $100k)
-            - If array: Per-asset initial dollar amounts (e.g., [10000, 20000, 30000]).
-              If `initial_weights` not provided, weights are computed proportionally.
-            - If None: Defaults to 1.0 (unit wealth)
-
-            Note: If both `initial_wealth` and `initial_weights` are arrays, raises ValueError.
-
-            The estimator tracks:
-
-            - `wealth_` : Current portfolio wealth (updated each period)
-            - `all_wealth_` : Historical wealth after each period (shape (T+1,))
+            Legacy allocation initializer. An array defines proportional initial
+            weights and cannot be combined with ``initial_weights``. A positive
+            scalar does not affect normalized returns. No account or wealth path
+            is maintained by this estimator; use portfolio evaluation for that.
 
         previous_weights : float | dict[str, float] | array-like of shape (n_assets,) | None, default=None
             Previous weights for computing transaction costs and turnover.
@@ -395,6 +391,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         """
         super().__init__(
             warm_start=warm_start,
+            store_weights=store_weights,
             initial_weights=initial_weights,
             initial_wealth=initial_wealth,
             previous_weights=previous_weights,
@@ -766,11 +763,9 @@ class FollowTheWinner(BaseOnlineOptimization):
             Effective price relatives used for loss computation.
         """
         # Compute loss for inspection (optional, can be simplified)
-        final_return = np.dot(self._last_trade_weights_, effective_relatives)
+        final_return = np.dot(self._previous_target_, effective_relatives)
         self.loss_ = -np.log(np.maximum(final_return, CLIP_EPSILON))
         self.cumulative_loss_ += self.loss_
-        # Note: previous_weights assignment is handled after wealth update to ensure
-        # transaction costs in wealth use the true previous trade weights.
         self._t += 1
 
     def _update_one(self, gross_relatives: np.ndarray) -> None:
@@ -787,8 +782,8 @@ class FollowTheWinner(BaseOnlineOptimization):
         # Step 5: Execute FTRL optimization step
         w_ftrl = self._execute_foco_step(gradient)
 
-        # Step 5.5: Store trading weights before update
-        self._last_trade_weights_ = self.weights_.copy()
+        # Store the algorithm target used before observing this return.
+        self._previous_target_ = self.weights_.copy()
 
         # Step 6: Apply post-processing (e.g., EG-tilde mixing)
         self.weights_ = self._apply_weights_mixing(w_ftrl)

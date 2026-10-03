@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import warnings
+from collections.abc import Iterator
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
@@ -18,7 +19,7 @@ from sklearn.base import check_is_fitted
 from sklearn.utils.validation import _check_sample_weight, validate_data
 
 import skfolio.typing as skt
-from skfolio.optimization._base import BaseOptimization
+from skfolio.optimization._base import BaseOptimization, _has_transaction_cost
 from skfolio.optimization.online._mixins import (
     OnlineParameterConstraintsMixin,
 )
@@ -44,6 +45,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self,
         *,
         warm_start: bool = True,
+        store_weights: bool = True,
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: skt.MultiInput | None = None,
@@ -72,6 +74,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             raise_on_failure=raise_on_failure,
         )
         self.warm_start = warm_start
+        self.store_weights = store_weights
         self.initial_weights = initial_weights
         self.initial_wealth = initial_wealth
         self.previous_weights = previous_weights
@@ -95,9 +98,9 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self._weights_initialized: bool = False
         self._projector: AutoProjector | None = None
         self._t: int = 0
-        self._last_trade_weights_: np.ndarray | None = None
+        self._previous_target_: np.ndarray | None = None
 
-    def _initialize_projector(self):
+    def _initialize_projector(self) -> AutoProjector:
         projection_config = ProjectionConfig(
             lower=self.min_weights,
             upper=self.max_weights,
@@ -142,10 +145,10 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self._weights_initialized = True
 
     def _apply_initial_projection(self) -> None:
-        """Project the initial traded portfolio once before the first round."""
+        """Project the initial algorithm reference under static constraints."""
         if self._projector is None or not self._weights_initialized:
             return
-        if self._t != 0 or self._last_trade_weights_ is not None:
+        if self._t != 0 or self._previous_target_ is not None:
             return
         # Initial algorithm reference is not an executed allocation.
         static = AutoProjector(
@@ -173,7 +176,8 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         """Continue learning from one observation or a causal block of net returns.
 
         The target after observing row t is intended for period t+1. Validation
-        covers the complete block before any numerical update. Targets recorded in all_weights_ are diagnostic learning history, not trades.
+        covers the complete block before any numerical update. Targets recorded in
+        all_weights_ are diagnostic learning history, not trades.
         """
         if getattr(self, "_needs_reset", False):
             raise RuntimeError(
@@ -202,12 +206,19 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                 stacklevel=2,
             )
         warmup = getattr(self, "_in_warmup", False)
-        if len(returns) > 1 and self.max_turnover is not None and not warmup:
+        if (
+            len(returns) > 1
+            and not warmup
+            and (
+                self.max_turnover is not None
+                or _has_transaction_cost(self.transaction_costs)
+            )
+        ):
             raise ValueError(
                 "Execution-constrained blocks require row-aligned holdings; "
                 "use fit for warmup or one-row partial_fit for each rebalance"
             )
-        trade_list = []
+        target_list = []
         try:
             for i, row in enumerate(net_to_relatives(returns)):
                 decision = not warmup or i == len(returns) - 1
@@ -231,18 +242,24 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                         "max_turnover requires explicit previous_weights holdings"
                     )
                 self._update_one(row)
+                if (
+                    np.shape(self.weights_) != (returns.shape[1],)
+                    or not np.isfinite(self.weights_).all()
+                ):
+                    raise RuntimeError("Online update produced invalid target weights")
                 if not hasattr(self, "initial_weights_"):
-                    self.initial_weights_ = self._last_trade_weights_.copy()
+                    self.initial_weights_ = self._previous_target_.copy()
                 self.n_observations_ = self._t
-                trade_list.append(self._last_trade_weights_.copy())
+                if self.store_weights:
+                    target_list.append(self._previous_target_.copy())
         except Exception:
             # Engines/predictors may already have consumed the failing observation.
             # Do not pretend that keeping the previous public target rolls them back.
             self._needs_reset = True
             raise
         finally:
-            if trade_list:
-                history = np.asarray(trade_list)
+            if target_list:
+                history = np.asarray(target_list)
                 self.all_weights_ = (
                     np.vstack((self.all_weights_, history))
                     if hasattr(self, "all_weights_")
@@ -251,7 +268,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         return self
 
     @contextmanager
-    def _warmup_context(self):
+    def _warmup_context(self) -> Iterator[None]:
         """Mark historical rows as learning-only until the final entry decision."""
         old = getattr(self, "_in_warmup", False)
         self._in_warmup = True
@@ -274,7 +291,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self._is_initialized = False
         self._projector = None
         self._t = 0
-        self._last_trade_weights_ = None
+        self._previous_target_ = None
 
     def fit(
         self,
@@ -375,10 +392,13 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         from skfolio.model_selection._online._validation import _continue_online_predict
 
         self._reset_state_for_fit()
-        self._initialize_for_evaluation(X)
         previous = self.previous_weights
         try:
+            self._initialize_for_evaluation(X)
             return _continue_online_predict(self, X, y, refit_last=True)
+        except Exception:
+            self._needs_reset = True
+            raise
         finally:
             self.previous_weights = previous
 
