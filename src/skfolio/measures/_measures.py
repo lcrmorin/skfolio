@@ -17,6 +17,32 @@ from skfolio.typing import ArrayLike, FloatArray
 from skfolio.utils.stats import safe_divide
 
 
+def log_wealth(
+    returns: npt.ArrayLike, sample_weight: np.ndarray | None = None
+) -> float:
+    """Compute the log-wealth (cumulative log return).
+
+    The log-wealth represents the logarithm of the final wealth and is computed as
+    the sum of log returns: sum(log(1 + r_t)). This is a fundamental measure in
+    online portfolio selection and Kelly criterion theory.
+
+    Parameters
+    ----------
+    returns : ndarray of shape (n_observations,)
+        Array of return values.
+
+    sample_weight : ndarray of shape (n_observations,), optional
+        Sample weights for each observation. If None, equal weights are assumed.
+        The parameter is here for compatibility with other measures but is ignored.
+
+    Returns
+    -------
+    value : float
+        The log-wealth.
+    """
+    return np.sum(np.log1p(returns))
+
+
 def mean(
     returns: ArrayLike, sample_weight: FloatArray | None = None
 ) -> float | FloatArray:
