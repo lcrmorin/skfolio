@@ -30,6 +30,7 @@ from skfolio.optimization.online._mirror_maps import (
     BaseMirrorMap,
     BurgMirrorMap,
     CompositeMirrorMap,
+    DynamicMirrorMap,
     EntropyMirrorMap,
     EuclideanMirrorMap,
     make_ada_barrons_mirror_map,
@@ -41,6 +42,7 @@ from skfolio.optimization.online._mixins import (
 from skfolio.optimization.online._prediction import LastGradPredictor, SmoothPredictor
 from skfolio.optimization.online._projection import IdentityProjector
 from skfolio.optimization.online._utils import CLIP_EPSILON
+from skfolio.prior import BasePrior
 
 
 class FollowTheWinner(BaseOnlineOptimization):
@@ -77,7 +79,6 @@ class FollowTheWinner(BaseOnlineOptimization):
            PMLR 76:73-90.
     """
 
-    _foco_engine: FirstOrderOCO
     cumulative_loss_: float
 
     _parameter_constraints: ClassVar[dict] = {
@@ -115,7 +116,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         strategy: FTWStrategy = FTWStrategy.EG,
         *,
         objective: RiskMeasure | ExtraRiskMeasure | PerfMeasure | None = None,
-        learning_rate: float | Callable[[int], float] = "auto",
+        learning_rate: float | Literal["auto"] | Callable[[int], float] = "auto",
         learning_rate_scale: Literal["theory", "moderate", "empirical"] = "theory",
         update_mode: Literal["ftrl", "omd"] = "ftrl",
         warm_start: bool = True,
@@ -157,9 +158,10 @@ class FollowTheWinner(BaseOnlineOptimization):
         max_tracking_error: float | None = None,
         covariance: npt.ArrayLike | None = None,
         variance_bound: float | None = None,
+        prior_estimator: BasePrior | None = None,
         use_autograd: bool = False,
         portfolio_params: dict | None = None,
-    ):
+    ) -> None:
         r"""Follow-The-Winner online portfolio selection estimator.
 
         Parameters
@@ -382,6 +384,11 @@ class FollowTheWinner(BaseOnlineOptimization):
         variance_bound : float | None, default=None
             Maximum allowed portfolio variance.
 
+        prior_estimator : BasePrior or None, default=None
+            Optional incremental statistical estimator. Each observed row is passed
+            to ``partial_fit`` before computing the next decision. A variance bound
+            requires finite covariance at execution time. No prior is created when None.
+
         use_autograd : bool, default=False
             Whether to use autograd for computation of objective measures with respect to weights. Only for debugging purposes.
 
@@ -410,6 +417,7 @@ class FollowTheWinner(BaseOnlineOptimization):
             max_tracking_error=max_tracking_error,
             covariance=covariance,
             variance_bound=variance_bound,
+            prior_estimator=prior_estimator,
             portfolio_params=portfolio_params,
         )
 
@@ -459,10 +467,11 @@ class FollowTheWinner(BaseOnlineOptimization):
         self.use_autograd = use_autograd
 
         # Internal state (initialized deterministically)
-        self._foco_engine: FirstOrderOCO | None = None
+        self._foco_engine: FirstOrderOCO | SwordMeta | None = None
         self.cumulative_loss_: float = 0.0
 
     def _ensure_initialized(self, gross_relatives: np.ndarray) -> None:
+        """Initialize the numerical kernel and refresh decision constraints."""
         num_assets = int(gross_relatives.shape[0])
 
         if not self._is_initialized:
@@ -504,15 +513,20 @@ class FollowTheWinner(BaseOnlineOptimization):
                 effective_learning_rate = get_auto_learning_rate(
                     strategy=self.strategy,
                     n_assets=num_assets,
-                    min_weights=self.min_weights,
-                    max_weights=self.max_weights,
-                    budget=self.budget,
+                    min_weights=self._clean_input(
+                        self.min_weights, num_assets, 0.0, "min_weights"
+                    ),
+                    max_weights=self._clean_input(
+                        self.max_weights, num_assets, 1.0, "max_weights"
+                    ),
+                    budget=1.0 if self.budget is None else self.budget,
                     objective=self.objective,  # pass enum directly
                     gradient_bound=None,  # use automatic estimation
                     historical_returns=None,  # no historical data at init
                     scale=self.learning_rate_scale,
                 )
 
+            assert not isinstance(effective_learning_rate, str)
             match self.grad_predictor:
                 case "last":
                     predictor = LastGradPredictor()
@@ -596,6 +610,7 @@ class FollowTheWinner(BaseOnlineOptimization):
                     FTWStrategy.ADABARRONS,
                     "adabarrons",
                 )
+                assert mirror_map is not None
                 self._foco_engine = FirstOrderOCO(
                     mirror_map=mirror_map,
                     projector=self._projector,
@@ -612,7 +627,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         if not self._weights_initialized:
             self._initialize_weights(num_assets)
             self._apply_initial_projection()
-            if self._foco_engine is not None and hasattr(self._foco_engine, "_x_t"):
+            if isinstance(self._foco_engine, FirstOrderOCO):
                 if self._foco_engine._x_t is None:
                     self._foco_engine._x_t = self.weights_.copy()
 
@@ -710,18 +725,21 @@ class FollowTheWinner(BaseOnlineOptimization):
         if not (self.eg_tilde and self.strategy == FTWStrategy.EG):
             return w_foco
 
+        assert self._foco_engine is not None
+        assert self._projector is not None
         alpha_t = (
             self.eg_tilde_alpha(self._foco_engine._t)
             if callable(self.eg_tilde_alpha)
             else self.eg_tilde_alpha
         )
 
+        alpha_t = float(np.asarray(alpha_t))
         if alpha_t <= 0:
             return w_foco
 
         n = w_foco.shape[0]
         mixed = (1.0 - alpha_t) * w_foco + alpha_t / n
-        return self._projector.project(mixed)
+        return self._projector.project_geometry(mixed, "entropy")
 
     def _update_adabarrons_components(
         self, weights: np.ndarray, gradient: np.ndarray
@@ -739,8 +757,10 @@ class FollowTheWinner(BaseOnlineOptimization):
         gradient : np.ndarray
             Portfolio gradient vector.
         """
-        if self.strategy == FTWStrategy.ADABARRONS and isinstance(
-            self._foco_engine.map, CompositeMirrorMap
+        if (
+            self.strategy == FTWStrategy.ADABARRONS
+            and isinstance(self._foco_engine, FirstOrderOCO)
+            and isinstance(self._foco_engine.map, CompositeMirrorMap)
         ):
             # Access the components of the Ada-BARRONS mirror map:
             # [0] = AdaBarronsBarrierMap (weight-proximity adaptive)
@@ -749,9 +769,11 @@ class FollowTheWinner(BaseOnlineOptimization):
             components = self._foco_engine.map.components_
 
             # Update barrier with weights (NOT gradients)
+            assert isinstance(components[0], DynamicMirrorMap)
             components[0].update_state(weights)
 
             # Update full quadratic with gradients
+            assert isinstance(components[2], DynamicMirrorMap)
             components[2].update_state(gradient)
 
     def _finalize_partial_fit_state(self, effective_relatives: np.ndarray) -> None:
@@ -788,7 +810,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         # Step 6: Apply post-processing (e.g., EG-tilde mixing)
         self.weights_ = self._apply_weights_mixing(w_ftrl)
         # Mixing is part of the deployed decision; the next OMD step uses it.
-        if self.eg_tilde and hasattr(self._foco_engine, "_x_t"):
+        if self.eg_tilde and isinstance(self._foco_engine, FirstOrderOCO):
             self._foco_engine._x_t = self.weights_.copy()
 
         # Step 6.5: Manual component updates for Ada-BARRONS

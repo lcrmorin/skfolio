@@ -15,7 +15,8 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
-from sklearn.base import check_is_fitted
+import sklearn.utils.metadata_routing as skm
+from sklearn.base import check_is_fitted, clone
 from sklearn.utils.validation import _check_sample_weight, validate_data
 
 import skfolio.typing as skt
@@ -29,7 +30,13 @@ from skfolio.optimization.online._projection import (
 )
 from skfolio.optimization.online._utils import net_to_relatives
 from skfolio.portfolio import MultiPeriodPortfolio, Portfolio
-from skfolio.utils.tools import input_to_array
+from skfolio.prior import BasePrior
+from skfolio.utils.tools import (
+    _call_estimator,
+    _check_method_params,
+    input_to_array,
+    safe_indexing,
+)
 
 
 class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
@@ -40,6 +47,8 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
     managing weights, and applying projections. Subclasses should implement the
     core update logic.
     """
+
+    weights_: np.ndarray
 
     def __init__(
         self,
@@ -64,10 +73,11 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         max_tracking_error: float | None = None,
         covariance: npt.ArrayLike | None = None,
         variance_bound: float | None = None,
+        prior_estimator: BasePrior | None = None,
         portfolio_params: dict | None = None,
         fallback: skt.Fallback = None,
         raise_on_failure: bool = True,
-    ):
+    ) -> None:
         super().__init__(
             portfolio_params=portfolio_params,
             fallback=fallback,
@@ -91,6 +101,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self.X_tracking = X_tracking
         self.tracking_error_benchmark = tracking_error_benchmark
         self.max_tracking_error = max_tracking_error
+        self.prior_estimator = prior_estimator
         self.covariance = covariance
         self.variance_bound = variance_bound
 
@@ -101,19 +112,42 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self._previous_target_: np.ndarray | None = None
 
     def _initialize_projector(self) -> AutoProjector:
+        """Build the projector from aligned constraints and available causal estimates."""
+        n_assets = self.n_features_in_
+        names = getattr(self, "feature_names_in_", None)
+        groups = self.groups
+        if groups is not None:
+            groups = input_to_array(groups, n_assets, "", 2, names, "groups")
+        elif names is not None:
+            groups = np.asarray([names])
+        covariance = self.covariance
+        if self.variance_bound is not None and hasattr(self, "prior_estimator_"):
+            distribution = self.prior_estimator_.return_distribution_
+            covariance = np.asarray(distribution.covariance)
+            if covariance.shape != (n_assets, n_assets):
+                raise ValueError(
+                    "The causal prior covariance must match the fixed universe"
+                )
+            if not np.isfinite(covariance).all():
+                if getattr(self, "_prior_warmup", False):
+                    covariance = None
+                else:
+                    raise ValueError(
+                        "The causal prior must supply a finite covariance before an execution decision"
+                    )
         projection_config = ProjectionConfig(
-            lower=self.min_weights,
-            upper=self.max_weights,
+            lower=self._clean_input(self.min_weights, n_assets, 0.0, "min_weights"),
+            upper=self._clean_input(self.max_weights, n_assets, 1.0, "max_weights"),
             budget=self.budget,
-            groups=self.groups,
+            groups=groups,
             linear_constraints=self.linear_constraints,
             left_inequality=self.left_inequality,
             right_inequality=self.right_inequality,
             X_tracking=self.X_tracking,
             tracking_error_benchmark=self.tracking_error_benchmark,
             max_tracking_error=self.max_tracking_error,
-            covariance=self.covariance,
-            variance_bound=self.variance_bound,
+            covariance=covariance,
+            variance_bound=self.variance_bound if covariance is not None else None,
             previous_weights=self._execution_anchor,
             max_turnover=self._decision_turnover,
         )
@@ -184,8 +218,27 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                 "A previous update failed; call fit to reset before reuse"
             )
         self._validate_params()
-        if fit_params:
-            raise TypeError(f"Unsupported fit parameters: {sorted(fit_params)}")
+        if self.prior_estimator is not None and self.covariance is not None:
+            raise ValueError("Use prior_estimator or covariance, not both")
+        if self.prior_estimator is not None and not callable(
+            getattr(self.prior_estimator, "partial_fit", None)
+        ):
+            raise TypeError(
+                "prior_estimator must implement partial_fit for causal updates"
+            )
+        if (
+            self.variance_bound is not None
+            and self.prior_estimator is None
+            and self.covariance is None
+        ):
+            raise ValueError(
+                "variance_bound requires covariance or a causal prior_estimator"
+            )
+        metadata_params = dict(fit_params)
+        if self.prior_estimator is not None and sample_weight is not None:
+            metadata_params["sample_weight"] = sample_weight
+        routed = skm.process_routing(self, "partial_fit", **metadata_params)
+
         if not hasattr(X, "columns"):
             X = np.asarray(X)
             if X.ndim == 1:
@@ -198,13 +251,16 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             ensure_2d=True,
             accept_sparse=False,
         )
+        if y is not None and np.shape(y)[0] != len(returns):
+            raise ValueError("y must have one row per return observation")
         if sample_weight is not None:
             _check_sample_weight(sample_weight, returns)
-            warnings.warn(
-                "sample_weight is ignored for online estimators.",
-                UserWarning,
-                stacklevel=2,
-            )
+            if self.prior_estimator is None:
+                warnings.warn(
+                    "sample_weight is ignored for online estimators without a prior.",
+                    UserWarning,
+                    stacklevel=2,
+                )
         warmup = getattr(self, "_in_warmup", False)
         if (
             len(returns) > 1
@@ -218,10 +274,13 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                 "Execution-constrained blocks require row-aligned holdings; "
                 "use fit for warmup or one-row partial_fit for each rebalance"
             )
+        if self.prior_estimator is not None:
+            _check_method_params(returns, routed.prior_estimator.partial_fit)
         target_list = []
         try:
             for i, row in enumerate(net_to_relatives(returns)):
                 decision = not warmup or i == len(returns) - 1
+                self._prior_warmup = not decision
                 self._decision_turnover = self.max_turnover if decision else None
                 self._execution_anchor = (
                     None
@@ -241,12 +300,29 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                     raise ValueError(
                         "max_turnover requires explicit previous_weights holdings"
                     )
+                if self.prior_estimator is not None:
+                    if not self._is_initialized:
+                        self._initialize_algorithm(returns.shape[1])
+                    if not hasattr(self, "prior_estimator_"):
+                        self.prior_estimator_ = clone(self.prior_estimator)
+                    row_slice = slice(i, i + 1)
+                    metadata = _check_method_params(
+                        returns, routed.prior_estimator.partial_fit, row_slice
+                    )
+                    _call_estimator(
+                        self.prior_estimator_,
+                        "partial_fit",
+                        safe_indexing(X, row_slice),
+                        None if y is None else safe_indexing(y, row_slice),
+                        extra_params=metadata,
+                    )
                 self._update_one(row)
                 if (
                     np.shape(self.weights_) != (returns.shape[1],)
                     or not np.isfinite(self.weights_).all()
                 ):
                     raise RuntimeError("Online update produced invalid target weights")
+                assert self._previous_target_ is not None
                 if not hasattr(self, "initial_weights_"):
                     self.initial_weights_ = self._previous_target_.copy()
                 self.n_observations_ = self._t
@@ -277,6 +353,15 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         finally:
             self._in_warmup = old
 
+    def get_metadata_routing(self) -> skm.MetadataRouter:
+        """Route both entry points to the prior's incremental update method."""
+        return skm.MetadataRouter(owner=type(self).__name__).add(
+            prior_estimator=self.prior_estimator,
+            method_mapping=skm.MethodMapping()
+            .add(caller="fit", callee="partial_fit")
+            .add(caller="partial_fit", callee="partial_fit"),
+        )
+
     def _update_one(self, gross_relatives: np.ndarray) -> None:
         """Observe one return vector using the existing strategy machinery."""
         raise NotImplementedError
@@ -287,6 +372,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             if name.endswith("_") and not name.startswith("__"):
                 delattr(self, name)
         self._needs_reset = False
+        self._prior_warmup = False
         self._weights_initialized = False
         self._is_initialized = False
         self._projector = None
@@ -312,14 +398,14 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self,
         value: float | dict | npt.ArrayLike | None,
         n_assets: int,
-        fill_value: Any,
+        fill_value: float,
         name: str,
     ) -> float | np.ndarray:
         """Convert input to cleaned float or ndarray."""
         if value is None:
             return fill_value
         if np.isscalar(value):
-            v = float(value)
+            v = float(np.asarray(value))
             if name == "management_fees" and v >= 1.0:
                 raise ValueError("management_fees must be < 1.0 per period")
             return v
@@ -350,6 +436,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         if self.max_turnover is not None and self._execution_anchor is None:
             raise ValueError("max_turnover requires explicit previous_weights holdings")
         self._initialize_algorithm(data.shape[1])
+        assert self._projector is not None
         if self.max_turnover is not None:
             self.weights_ = self._projector.project(self.weights_)
         self._synchronize_target()
@@ -376,7 +463,9 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             raise RuntimeError(
                 "A previous update failed; call fit to reset before reuse"
             )
-        return super().predict(X)
+        portfolio = super().predict(X)
+        assert isinstance(portfolio, Portfolio)
+        return portfolio
 
     def fit_predict(
         self, X: npt.ArrayLike, y: npt.ArrayLike | None = None, **fit_params: Any
@@ -388,7 +477,10 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         returned portfolio uses skfolio's normalised return/wealth convention.
         """
         if fit_params:
-            raise TypeError(f"Unsupported fit parameters: {sorted(fit_params)}")
+            raise TypeError(
+                "Use model_selection.online_predict for routed evaluation metadata"
+            )
+
         from skfolio.model_selection._online._validation import _continue_online_predict
 
         self._reset_state_for_fit()

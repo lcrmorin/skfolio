@@ -10,10 +10,13 @@ from typing import ClassVar
 
 from sklearn.utils._param_validation import Interval
 
+from skfolio.prior import BasePrior
 from skfolio.utils.tools import AutoEnum
 
 
 class RegretType(AutoEnum):
+    """Available historical comparator conventions."""
+
     STATIC = auto()
     DYNAMIC = auto()
     DYNAMIC_UNIVERSAL = auto()
@@ -22,6 +25,8 @@ class RegretType(AutoEnum):
 
 
 class FTWStrategy(AutoEnum):
+    """Available follow-the-winner numerical strategies."""
+
     OGD = auto()
     EG = auto()
     ADAGRAD = auto()
@@ -85,6 +90,8 @@ class OLMARPredictor(AutoEnum):
 
 
 class OnlineParameterConstraintsMixin:
+    """Shared parameter validation for online portfolio estimators."""
+
     _parameter_constraints: ClassVar[dict] = {
         "warm_start": ["boolean"],
         "store_weights": ["boolean"],
@@ -106,8 +113,8 @@ class OnlineParameterConstraintsMixin:
             dict,
             "array-like",
         ],
-        "min_weights": [Interval(Real, 0, 1, closed="both"), "array-like", None],
-        "max_weights": [Interval(Real, 0, 1, closed="both"), "array-like", None],
+        "min_weights": [Interval(Real, 0, 1, closed="both"), "array-like", dict, None],
+        "max_weights": [Interval(Real, 0, 1, closed="both"), "array-like", dict, None],
         "budget": [Interval(Real, 0, 1.0, closed="right"), None],
         "max_turnover": [Interval(Real, 0, None, closed="left"), None],
         "groups": ["array-like", dict, None],
@@ -118,6 +125,7 @@ class OnlineParameterConstraintsMixin:
         "X_tracking": ["array-like", None],
         "tracking_error_benchmark": ["array-like", None],
         "max_tracking_error": [Interval(Real, 0, None, closed="neither"), None],
+        "prior_estimator": [BasePrior, None],
         "covariance": ["array-like", None],
         "variance_bound": [Interval(Real, 0, None, closed="neither"), None],
     }

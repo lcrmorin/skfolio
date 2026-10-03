@@ -6,8 +6,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from numbers import Integral, Real
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -46,6 +47,7 @@ from skfolio.optimization.online._strategies import (
     PAMRStrategy,
 )
 from skfolio.optimization.online._utils import CLIP_EPSILON
+from skfolio.prior import BasePrior
 
 
 class FollowTheLoser(BaseOnlineOptimization):
@@ -163,7 +165,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         - "pa": Passive-Aggressive (closed-form, original algorithms)
         - "md": Mirror Descent (OCO-style, supports flexible geometries and learning rates)
 
-    learning_rate : float | int | callable, default=1.0
+    learning_rate : float | Callable[[int], float], default=1.0
         Learning rate for MD mode. Can be constant or callable ``f(t)``.
         Only used with ``update_mode="md"``.
 
@@ -243,6 +245,11 @@ class FollowTheLoser(BaseOnlineOptimization):
     variance_bound : float | None, default=None
         Maximum allowed portfolio variance.
 
+    prior_estimator : BasePrior or None, default=None
+        Optional incremental prior, updated once per observed return. Covariance
+        is used only when a variance bound is requested. During warmup its moments
+        may be unavailable, but they must be finite at the first execution decision.
+
     portfolio_params : dict | None, default=None
         Additional portfolio parameters passed to base class.
 
@@ -307,7 +314,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         olmar_predictor: OLMARPredictor = OLMARPredictor.SMA,
         olmar_window: int = 5,
         olmar_alpha: float = 0.5,
-        pamr_variant: PAMRVariant = "simple",
+        pamr_variant: PAMRVariant | str = "simple",
         pamr_C: float = 500.0,
         cwmr_eta: float = 0.95,
         cwmr_sigma0: float = 1.0,
@@ -322,7 +329,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         objective: str = "hinge",
         beta: float = 5.0,
         update_mode: str = "pa",
-        learning_rate: float | int | callable = 1.0,
+        learning_rate: float | Callable[[int], float] = 1.0,
         apply_fees_to_phi: bool = True,
         mirror: Literal["euclidean", "entropy"] = "euclidean",
         warm_start: bool = True,
@@ -332,19 +339,20 @@ class FollowTheLoser(BaseOnlineOptimization):
         previous_weights: npt.ArrayLike | None = None,
         transaction_costs: skt.MultiInput = 0.0,
         management_fees: skt.MultiInput = 0.0,
-        groups: Any | None = None,
-        linear_constraints: Any | None = None,
-        left_inequality: Any | None = None,
-        right_inequality: Any | None = None,
+        groups: skt.Groups | None = None,
+        linear_constraints: skt.LinearConstraints | None = None,
+        left_inequality: skt.Inequality | None = None,
+        right_inequality: skt.Inequality | None = None,
         max_turnover: float | None = None,
-        min_weights: Any | None = 0.0,
-        max_weights: Any | None = 1.0,
+        min_weights: skt.MultiInput | None = 0.0,
+        max_weights: skt.MultiInput | None = 1.0,
         budget: float | None = 1.0,
-        X_tracking: Any | None = None,
-        tracking_error_benchmark: Any | None = None,
+        X_tracking: npt.ArrayLike | None = None,
+        tracking_error_benchmark: npt.ArrayLike | None = None,
         max_tracking_error: float | None = None,
-        covariance: Any | None = None,
+        covariance: npt.ArrayLike | None = None,
         variance_bound: float | None = None,
+        prior_estimator: BasePrior | None = None,
         portfolio_params: dict | None = None,
     ) -> None:
         super().__init__(
@@ -368,6 +376,7 @@ class FollowTheLoser(BaseOnlineOptimization):
             max_tracking_error=max_tracking_error,
             covariance=covariance,
             variance_bound=variance_bound,
+            prior_estimator=prior_estimator,
             portfolio_params=portfolio_params,
         )
 
@@ -441,7 +450,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         # Initialize strategy implementation
         if self._strategy_impl is None:
             self._strategy_impl = self._create_strategy(d)
-        if hasattr(self._strategy_impl, "transaction_costs_arr"):
+        if isinstance(self._strategy_impl, (OLMARStrategy, PAMRStrategy)):
             self._strategy_impl.transaction_costs_arr = self._transaction_costs_arr
 
     def _init_olmar_components(self, d: int) -> None:
@@ -520,6 +529,7 @@ class FollowTheLoser(BaseOnlineOptimization):
             case _:
                 raise ValueError(f"Unknown mirror: {self.mirror}")
 
+        assert self._projector is not None
         return FirstOrderOCO(
             mirror_map=mm,
             projector=self._projector,
@@ -530,8 +540,11 @@ class FollowTheLoser(BaseOnlineOptimization):
 
     def _create_strategy(self, d: int) -> BaseStrategy:
         """Factory method to create strategy implementation."""
+        assert self._objective_fn is not None or self.strategy == FTLStrategy.CWMR
         match self.strategy:
             case FTLStrategy.OLMAR:
+                assert self._predictor is not None
+                assert self._objective_fn is not None
                 strategy = OLMARStrategy(
                     predictor=self._predictor,
                     objective=self._objective_fn,
@@ -541,11 +554,12 @@ class FollowTheLoser(BaseOnlineOptimization):
                     transaction_costs_arr=self._transaction_costs_arr,
                 )
             case FTLStrategy.PAMR:
+                assert self._objective_fn is not None
                 strategy = PAMRStrategy(
                     objective=self._objective_fn,
                     engine=self._engine,
                     epsilon=self.epsilon,
-                    pamr_variant=self.pamr_variant,
+                    pamr_variant=PAMRVariant(self.pamr_variant),
                     pamr_C=self.pamr_C,
                     transaction_costs_arr=self._transaction_costs_arr,
                 )
@@ -561,6 +575,8 @@ class FollowTheLoser(BaseOnlineOptimization):
                     initial_weights=self.weights_,
                 )
             case FTLStrategy.RMR:
+                assert self._predictor is not None
+                assert self._objective_fn is not None
                 strategy = OLMARStrategy(
                     predictor=self._predictor,
                     objective=self._objective_fn,
@@ -577,6 +593,7 @@ class FollowTheLoser(BaseOnlineOptimization):
     def _compute_predictor(self, x_t: np.ndarray, d: int) -> np.ndarray:
         """Compute effective reversion predictor (only for OLMAR/RMR)."""
         if self.strategy in (FTLStrategy.OLMAR, FTLStrategy.RMR):
+            assert self._predictor is not None
             phi = self._predictor.update_and_predict(x_t)
             # Apply fees to phi if requested
             if self.apply_fees_to_phi:
@@ -597,7 +614,7 @@ class FollowTheLoser(BaseOnlineOptimization):
             return candidate_w
 
         if np.isscalar(tc):
-            tc_arr = np.full_like(candidate_w, float(tc), dtype=float)
+            tc_arr = np.full_like(candidate_w, float(np.asarray(tc)), dtype=float)
         else:
             tc_arr = np.asarray(tc, dtype=float)
         if tc_arr.shape != candidate_w.shape:
@@ -621,6 +638,8 @@ class FollowTheLoser(BaseOnlineOptimization):
         self, trade_w: np.ndarray, x_t: np.ndarray, phi_eff: np.ndarray
     ) -> np.ndarray:
         """Execute the strategy update step."""
+        assert self._strategy_impl is not None
+        assert self._projector is not None
         if not self._strategy_impl.should_update(self._t):
             return trade_w.copy()
 
@@ -630,7 +649,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         return self._strategy_impl.step(
             trade_w=trade_w,
             arr=arr,
-            update_mode=self.update_mode,
+            update_mode=UpdateMode(self.update_mode),
             projector=self._projector,
         )
 
@@ -690,11 +709,12 @@ class FollowTheLoser(BaseOnlineOptimization):
                 drifted_w=self._execution_anchor,
             )
         # Cold-start and inactive strategy paths must respect execution constraints too.
+        assert self._projector is not None
         if self._projector.config.max_turnover is not None:
             next_w = self._projector.project(next_w)
         if self._engine is not None and self._engine._x_t is not None:
             self._engine._x_t = next_w.copy()
-        if self.strategy == FTLStrategy.CWMR:
+        if isinstance(self._strategy_impl, CWMRStrategy):
             self._strategy_impl._mu = next_w.copy()
 
         # Update state
