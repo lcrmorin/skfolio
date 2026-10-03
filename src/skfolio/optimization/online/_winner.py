@@ -825,8 +825,6 @@ class FollowTheWinner(BaseOnlineOptimization):
             if self._current_previous_weights_ is None
             else self._current_previous_weights_.copy()
         )
-        if self._projector is not None and self.max_turnover is not None:
-            self._projector.config.previous_weights = self.weights_.copy()
 
         # Step 4: Compute portfolio gradient (including transaction costs)
         gradient = self._compute_portfolio_gradient(effective_relatives)
@@ -839,6 +837,9 @@ class FollowTheWinner(BaseOnlineOptimization):
 
         # Step 6: Apply post-processing (e.g., EG-tilde mixing)
         self.weights_ = self._apply_weights_mixing(w_ftrl)
+        # Mixing is part of the deployed decision; the next OMD step uses it.
+        if self.eg_tilde and hasattr(self._foco_engine, "_x_t"):
+            self._foco_engine._x_t = self.weights_.copy()
 
         # Step 6.5: Manual component updates for Ada-BARRONS
         # (barrier with weights, full quadratic with gradients)

@@ -171,7 +171,6 @@ class PAMRStrategy(BaseStrategy):
 
         # Update: w_new = w - tau * c (gradient descent step)
         w_new = trade_w - tau * c
-        projector.config.previous_weights = trade_w
         return projector.project(w_new)
 
     def _md_step(
@@ -238,7 +237,6 @@ class PAMRStrategy(BaseStrategy):
                         delta = trade_w - prev_drifted
                         g += self.transaction_costs_arr * np.sign(delta)
 
-        projector.config.previous_weights = trade_w
         return self.engine.step(g)
 
 
@@ -309,7 +307,6 @@ class CWMRStrategy(BaseStrategy):
         diag_new = _cwmr.clip_variances(diag_new, self.cwmr_min_var, self.cwmr_max_var)
 
         # Project mean to feasible set
-        projector.config.previous_weights = trade_w
         w_next = projector.project(mu_new)
 
         # Update state
@@ -343,7 +340,6 @@ class CWMRStrategy(BaseStrategy):
         mu_candidate = self._mu - self.cwmr_mean_lr * x_t
 
         # Project to feasible set
-        projector.config.previous_weights = trade_w
         w_next = projector.project(mu_candidate)
         self._mu = w_next.copy()
 
@@ -477,7 +473,6 @@ class OLMARStrategy(BaseStrategy):
             return trade_w.copy()
 
         lam = loss / c_norm_sq
-        projector.config.previous_weights = trade_w
         return projector.project(trade_w + lam * c)
 
     def _md_step(
@@ -528,5 +523,4 @@ class OLMARStrategy(BaseStrategy):
                         delta = trade_w - prev_drifted
                         g += self.transaction_costs_arr * np.sign(delta)
 
-        projector.config.previous_weights = trade_w
         return self.engine.step(g)

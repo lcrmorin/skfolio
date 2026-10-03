@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import warnings
 from copy import deepcopy
+from dataclasses import replace
 from typing import Any
 
 import numpy as np
@@ -113,7 +114,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             max_tracking_error=self.max_tracking_error,
             covariance=self.covariance,
             variance_bound=self.variance_bound,
-            previous_weights=self._current_previous_weights_,
+            previous_weights=self._execution_anchor,
             max_turnover=self.max_turnover,
         )
         return AutoProjector(projection_config)
@@ -260,7 +261,11 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             return
         if self._t != 0 or self._last_trade_weights_ is not None:
             return
-        self.weights_ = self._projector.project(self.weights_)
+        # Initial algorithm reference is not an executed allocation.
+        static = AutoProjector(replace(
+            self._projector.config, previous_weights=None, max_turnover=None
+        ))
+        self.weights_ = static.project(self.weights_)
 
     def _compute_effective_relatives(self, gross_relatives: np.ndarray) -> np.ndarray:
         """Apply management fees to gross relatives.
@@ -347,6 +352,16 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         wealth_list = []
         initial_wealth = None
         for row in net_to_relatives(returns):
+            self._execution_anchor = (
+                None if self.previous_weights is None
+                else self._clean_previous_weights(returns.shape[1]).copy()
+            )
+            if self._execution_anchor is not None:
+                if not np.isfinite(self._execution_anchor).all():
+                    raise ValueError("previous_weights must contain finite holdings")
+                self._execution_anchor.setflags(write=False)
+            if self.max_turnover is not None and self._execution_anchor is None:
+                raise ValueError("max_turnover requires explicit previous_weights holdings")
             self._update_one(row)
             if not hasattr(self, "initial_weights_"):
                 self.initial_weights_ = self._last_trade_weights_.copy()

@@ -291,24 +291,27 @@ def project_with_turnover(
     if previous_weights is None or max_turnover is None:
         return w
 
-    if max_turnover <= 0:
-        return project_box_and_sum(
-            y=np.asarray(previous_weights, dtype=float),
-            lower=lower_bounds,
-            upper=u,
-            budget=budget,
-        )
-
     prev = np.asarray(previous_weights, dtype=float)
-    for _ in range(10):  # small fixed-point iterations
-        delta = w - prev
-        l1 = float(np.sum(np.abs(delta)))
-        if l1 <= float(max_turnover) + 1e-12:
-            break
-        factor = float(max_turnover) / l1
-        w = prev + factor * delta
-        w = project_box_and_sum(y=w, lower=lower_bounds, upper=u, budget=budget)
-    return w
+    if prev.shape != y.shape or not np.isfinite(prev).all():
+        raise ValueError("previous_weights must be a finite vector matching weights")
+    if not np.isfinite(max_turnover) or max_turnover < 0:
+        raise ValueError("max_turnover must be finite and nonnegative")
+    if max_turnover == 0:
+        if not (
+            np.all(prev >= lower_bounds - 1e-10)
+            and np.all(prev <= u + 1e-10)
+            and np.isclose(prev.sum(), budget, atol=1e-10, rtol=0)
+        ):
+            raise ValueError("Infeasible zero turnover with the static constraints")
+        return prev.copy()
+    if np.abs(w - prev).sum() <= max_turnover + 1e-10:
+        return w
+    # Alternating clipping could stop outside the intersection. Solve that
+    # intersection directly, keeping the actual holdings unchanged.
+    return project_convex(
+        w_raw=y, lower=lower_bounds, upper=u, budget=budget,
+        previous_weights=prev, max_turnover=max_turnover,
+    )
 
 
 def project_convex(
@@ -448,6 +451,11 @@ def project_convex(
     except Exception:
         prob.solve(verbose=False)
 
-    if w.value is None:
-        raise RuntimeError("Convex projection failed to converge.")
-    return w.value
+    if w.value is None or prob.status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
+        raise ValueError(f"Infeasible or failed convex projection: {prob.status}")
+    if not np.isfinite(w.value).all() or any(
+        np.max(np.asarray(constraint.violation())) > 1e-7
+        for constraint in constraints
+    ):
+        raise ValueError("Convex projection returned an infeasible solution")
+    return np.asarray(w.value, dtype=float)

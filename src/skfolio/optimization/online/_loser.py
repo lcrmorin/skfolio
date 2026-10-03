@@ -627,12 +627,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         if self._projector is None:
             return adjusted
 
-        original_prev = self._projector.config.previous_weights
-        self._projector.config.previous_weights = trade_w
-        try:
-            adjusted = self._projector.project(adjusted)
-        finally:
-            self._projector.config.previous_weights = original_prev
+        adjusted = self._projector.project(adjusted)
 
         return adjusted
 
@@ -704,18 +699,19 @@ class FollowTheLoser(BaseOnlineOptimization):
         # Execute strategy update
         next_w = self._execute_strategy_update(trade_w, x_t, phi)
 
-        # Apply transaction cost regularization (PA style shrink toward drifted holdings)
-        if self._transaction_costs_arr is not None and self._t >= 0:
-            drifted = self._compute_drifted_weights(trade_w, x_t)
-            if drifted is not None:
-                next_w = self._apply_transaction_cost_regularization(
-                    candidate_w=next_w,
-                    trade_w=trade_w,
-                    drifted_w=drifted,
-                )
-        else:
-            if self._projector is not None:
-                self._projector.config.previous_weights = trade_w
+        # A decision penalty may use actual holdings, never reconstructed holdings.
+        if self._execution_anchor is not None:
+            next_w = self._apply_transaction_cost_regularization(
+                candidate_w=next_w, trade_w=trade_w,
+                drifted_w=self._execution_anchor,
+            )
+        # Cold-start and inactive strategy paths must respect execution constraints too.
+        if self._projector.config.max_turnover is not None:
+            next_w = self._projector.project(next_w)
+        if self._engine is not None and self._engine._x_t is not None:
+            self._engine._x_t = next_w.copy()
+        if self.strategy == FTLStrategy.CWMR:
+            self._strategy_impl._mu = next_w.copy()
 
         # Update state
         self.weights_ = next_w
