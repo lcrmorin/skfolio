@@ -117,40 +117,16 @@ class PAMRStrategy(BaseStrategy):
         # Actually, let's compute directly for clarity
         c = x_t - np.mean(x_t)
 
-        # Optional turnover penalty (gated): default off
+        # Trading penalties affect decisions; Portfolio books actual costs once.
         if (
             getattr(self, "penalize_turnover", False)
             and self.transaction_costs_arr is not None
+            and projector.config.previous_weights is not None
         ):
-            # Avoid double counting: if costs are active in wealth, skip gradient penalty
-            tc = self.transaction_costs_arr
-            costs_active = bool(np.isscalar(tc) and float(tc) > 0.0) or (
-                (not np.isscalar(tc))
-                and bool(np.any(np.asarray(tc, dtype=float) > 0.0))
+            c += self.transaction_costs_arr * np.sign(
+                trade_w - projector.config.previous_weights
             )
-            if costs_active:
-                if not self._turnover_penalty_disabled_warned:
-                    warnings.warn(
-                        "penalize_turnover is enabled but transaction_costs are nonzero; "
-                        "disabling gradient turnover penalty to avoid double counting costs.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    self._turnover_penalty_disabled_warned = True
-            else:
-                prev = projector.config.previous_weights
-                if prev is not None:
-                    prev_arr = np.asarray(prev, dtype=float)
-                    if prev_arr.shape == trade_w.shape:
-                        rel = x_t
-                        denom = float(np.dot(prev_arr, rel))
-                        if denom <= 0:
-                            denom = 1e-16
-                        prev_drifted = (prev_arr * rel) / denom
-                        delta = trade_w - prev_drifted
-                        tc_grad = self.transaction_costs_arr * np.sign(delta)
-                        c = c + tc_grad
-                        c = c - np.mean(c)
+            c -= np.mean(c)
 
         c_norm_sq = float(np.dot(c, c))
 
@@ -205,37 +181,15 @@ class PAMRStrategy(BaseStrategy):
                 stacklevel=2,
             )
 
-        # Optional turnover penalty (gated): default off
+        # Trading penalties affect decisions; Portfolio books actual costs once.
         if (
             getattr(self, "penalize_turnover", False)
             and self.transaction_costs_arr is not None
+            and projector.config.previous_weights is not None
         ):
-            tc = self.transaction_costs_arr
-            costs_active = bool(np.isscalar(tc) and float(tc) > 0.0) or (
-                (not np.isscalar(tc))
-                and bool(np.any(np.asarray(tc, dtype=float) > 0.0))
+            g += self.transaction_costs_arr * np.sign(
+                trade_w - projector.config.previous_weights
             )
-            if costs_active:
-                if not self._turnover_penalty_disabled_warned:
-                    warnings.warn(
-                        "penalize_turnover is enabled but transaction_costs are nonzero; "
-                        "disabling gradient turnover penalty to avoid double counting costs.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    self._turnover_penalty_disabled_warned = True
-            else:
-                prev = projector.config.previous_weights
-                if prev is not None:
-                    prev_arr = np.asarray(prev, dtype=float)
-                    if prev_arr.shape == trade_w.shape:
-                        rel = x_t
-                        denom = float(np.dot(prev_arr, rel))
-                        if denom <= 0:
-                            denom = 1e-16
-                        prev_drifted = (prev_arr * rel) / denom
-                        delta = trade_w - prev_drifted
-                        g += self.transaction_costs_arr * np.sign(delta)
 
         return self.engine.step(g)
 
@@ -434,39 +388,16 @@ class OLMARStrategy(BaseStrategy):
         # Center for simplex tangent space
         c = g - np.mean(g)
 
-        # Optional turnover penalty (gated): default off
+        # Trading penalties affect decisions; Portfolio books actual costs once.
         if (
             getattr(self, "penalize_turnover", False)
             and self.transaction_costs_arr is not None
+            and projector.config.previous_weights is not None
         ):
-            tc = self.transaction_costs_arr
-            costs_active = bool(np.isscalar(tc) and float(tc) > 0.0) or (
-                (not np.isscalar(tc))
-                and bool(np.any(np.asarray(tc, dtype=float) > 0.0))
+            c += self.transaction_costs_arr * np.sign(
+                trade_w - projector.config.previous_weights
             )
-            if costs_active:
-                if not self._turnover_penalty_disabled_warned:
-                    warnings.warn(
-                        "penalize_turnover is enabled but transaction_costs are nonzero; "
-                        "disabling gradient turnover penalty to avoid double counting costs.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    self._turnover_penalty_disabled_warned = True
-            else:
-                prev = projector.config.previous_weights
-                if prev is not None:
-                    prev_arr = np.asarray(prev, dtype=float)
-                    if prev_arr.shape == trade_w.shape:
-                        rel = phi_eff
-                        denom = float(np.dot(prev_arr, rel))
-                        if denom <= 0:
-                            denom = 1e-16
-                        prev_drifted = (prev_arr * rel) / denom
-                        delta = trade_w - prev_drifted
-                        tc_grad = self.transaction_costs_arr * np.sign(delta)
-                        c = c + tc_grad
-                        c = c - np.mean(c)
+            c -= np.mean(c)
 
         c_norm_sq = float(np.dot(c, c))
         if c_norm_sq <= 1e-16:
@@ -491,36 +422,14 @@ class OLMARStrategy(BaseStrategy):
         if isinstance(self.engine.map, EuclideanMirrorMap):
             g -= np.mean(g)
 
-        # Optional turnover penalty (gated): default off
+        # Trading penalties affect decisions; Portfolio books actual costs once.
         if (
             getattr(self, "penalize_turnover", False)
             and self.transaction_costs_arr is not None
+            and projector.config.previous_weights is not None
         ):
-            tc = self.transaction_costs_arr
-            costs_active = bool(np.isscalar(tc) and float(tc) > 0.0) or (
-                (not np.isscalar(tc))
-                and bool(np.any(np.asarray(tc, dtype=float) > 0.0))
+            g += self.transaction_costs_arr * np.sign(
+                trade_w - projector.config.previous_weights
             )
-            if costs_active:
-                if not self._turnover_penalty_disabled_warned:
-                    warnings.warn(
-                        "penalize_turnover is enabled but transaction_costs are nonzero; "
-                        "disabling gradient turnover penalty to avoid double counting costs.",
-                        UserWarning,
-                        stacklevel=2,
-                    )
-                    self._turnover_penalty_disabled_warned = True
-            else:
-                prev = projector.config.previous_weights
-                if prev is not None:
-                    prev_arr = np.asarray(prev, dtype=float)
-                    if prev_arr.shape == trade_w.shape:
-                        rel = phi_eff
-                        denom = float(np.dot(prev_arr, rel))
-                        if denom <= 0:
-                            denom = 1e-16
-                        prev_drifted = (prev_arr * rel) / denom
-                        delta = trade_w - prev_drifted
-                        g += self.transaction_costs_arr * np.sign(delta)
 
         return self.engine.step(g)

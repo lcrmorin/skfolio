@@ -405,7 +405,6 @@ class FollowTheLoser(BaseOnlineOptimization):
 
     def _initialize_components(self, d: int) -> None:
         """Initialize all strategy components."""
-        self._ensure_previous_weights_state(d)
         self._projector = self._initialize_projector()
         if self._engine is not None:
             self._engine.projector = self._projector
@@ -427,9 +426,6 @@ class FollowTheLoser(BaseOnlineOptimization):
         if not self._weights_initialized:
             self._initialize_weights(d)
 
-        # Initialize wealth tracking
-        if not self._wealth_initialized:
-            self._initialize_wealth(d)
         self._apply_initial_projection()
 
         # Initialize predictor and surrogate
@@ -448,6 +444,8 @@ class FollowTheLoser(BaseOnlineOptimization):
         # Initialize strategy implementation
         if self._strategy_impl is None:
             self._strategy_impl = self._create_strategy(d)
+        if hasattr(self._strategy_impl, "transaction_costs_arr"):
+            self._strategy_impl.transaction_costs_arr = self._transaction_costs_arr
 
     def _init_olmar_components(self, d: int) -> None:
         """Initialize OLMAR-specific components: predictor, objective, and engine.
@@ -585,19 +583,10 @@ class FollowTheLoser(BaseOnlineOptimization):
             phi = self._predictor.update_and_predict(x_t)
             # Apply fees to phi if requested
             if self.apply_fees_to_phi:
-                phi = phi * (1.0 - self._management_fees_arr)
+                phi = phi - self._management_fees_arr
             return phi
         # PAMR and CWMR use x_t directly
         return x_t
-
-    def _compute_drifted_weights(
-        self, trade_w: np.ndarray, effective_relatives: np.ndarray
-    ) -> np.ndarray | None:
-        r"""Compute drifted holdings after observing ``effective_relatives``."""
-        denom = float(np.dot(trade_w, effective_relatives))
-        if denom <= 0.0:
-            return None
-        return (trade_w * effective_relatives) / denom
 
     def _apply_transaction_cost_regularization(
         self,
@@ -683,18 +672,15 @@ class FollowTheLoser(BaseOnlineOptimization):
         # Apply management fees to gross relatives
         x_t = self._compute_effective_relatives(x_t_gross)
 
-        rebalance_from = (
-            None
-            if self._current_previous_weights_ is None
-            else self._current_previous_weights_.copy()
-        )
-
         # Store current weights for trading
         trade_w = self.weights_.copy()
         self._last_trade_weights_ = trade_w
 
         # Compute effective predictor (OLMAR only)
-        phi = self._compute_predictor(x_t, d)
+        phi = self._compute_predictor(
+            x_t_gross if self.strategy in (FTLStrategy.OLMAR, FTLStrategy.RMR) else x_t,
+            d,
+        )
 
         # Execute strategy update
         next_w = self._execute_strategy_update(trade_w, x_t, phi)
@@ -702,7 +688,8 @@ class FollowTheLoser(BaseOnlineOptimization):
         # A decision penalty may use actual holdings, never reconstructed holdings.
         if self._execution_anchor is not None:
             next_w = self._apply_transaction_cost_regularization(
-                candidate_w=next_w, trade_w=trade_w,
+                candidate_w=next_w,
+                trade_w=trade_w,
                 drifted_w=self._execution_anchor,
             )
         # Cold-start and inactive strategy paths must respect execution constraints too.
@@ -717,17 +704,12 @@ class FollowTheLoser(BaseOnlineOptimization):
         self.weights_ = next_w
         self.loss_ = self._compute_loss(trade_w, x_t)
 
-        # Update wealth tracking
-        if hasattr(self, "_wealth_initialized") and self._wealth_initialized:
-            self._update_wealth(
-                trade_weights=trade_w,
-                effective_relatives=x_t,
-                previous_weights=rebalance_from,
-            )
-
-        # Drift current trade weights to obtain the next rebalance anchor
-        self._current_previous_weights_ = self._drift_weights(trade_w, x_t)
         self._t += 1
+
+    def _initialize_algorithm(self, n_assets: int) -> None:
+        """Initialize loser components and predictor without observing a return."""
+        self._initialize_components(n_assets)
+        self._is_initialized = True
 
     def _reset_state_for_fit(self) -> None:
         """Reset the strategy, predictor and engine for a fresh fit."""

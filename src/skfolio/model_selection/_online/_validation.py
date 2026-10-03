@@ -9,10 +9,10 @@
 
 from __future__ import annotations
 
-from contextlib import nullcontext
 import datetime as dt
 import numbers
 from collections.abc import Generator
+from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -571,6 +571,31 @@ def _online_walk_forward(
     test_slice : slice
         Slice into `X` for the current test window.
     """
+    if warmup_size == 0:
+        if test_size != 1 or freq is not None or purged_size:
+            raise ValueError("Continuation requires contiguous one-period evaluation")
+        for i in range(len(X)):
+            if i:
+                fit_single_estimator(
+                    estimator,
+                    X,
+                    y,
+                    fit_params=routed_params.estimator_params,
+                    indices=slice(i - 1, i),
+                    method="partial_fit",
+                )
+            yield slice(i, i + 1)
+        if refit_last and len(X):
+            fit_single_estimator(
+                estimator,
+                X,
+                y,
+                fit_params=routed_params.estimator_params,
+                indices=slice(len(X) - 1, len(X)),
+                method="partial_fit",
+            )
+        return
+
     cv = WalkForward(
         test_size=test_size,
         train_size=warmup_size,
@@ -599,7 +624,9 @@ def _online_walk_forward(
         )
 
     if getattr(estimator, "_requires_single_period_evaluation", False) and purged_size:
-        raise ValueError("Online portfolio selection does not support purged execution gaps")
+        raise ValueError(
+            "Online portfolio selection does not support purged execution gaps"
+        )
 
     # WalkForward with expand_train=True produces contiguous index arrays,
     # so converting first/last to a slice is safe and avoids a copy.
@@ -1043,3 +1070,23 @@ def _validate_scoring(scoring: skt.Scoring, is_portfolio: bool) -> None:
                     "For non-predictor estimators, `scoring` must be `None`, a "
                     "callable, or a dict[str, callable]."
                 )
+
+
+def _continue_online_predict(
+    estimator: skb.BaseEstimator,
+    X: ArrayLike,
+    y: ArrayLike | None,
+    *,
+    refit_last: bool,
+) -> MultiPeriodPortfolio:
+    """Evaluate an already initialized learner through the shared accounting path."""
+    X, y = sku.indexable(X, y)
+    return _online_predict(
+        estimator,
+        X,
+        y,
+        sku.Bunch(estimator_params={}),
+        warmup_size=0,
+        test_size=1,
+        refit_last=refit_last,
+    )

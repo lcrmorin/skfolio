@@ -309,8 +309,12 @@ def project_with_turnover(
     # Alternating clipping could stop outside the intersection. Solve that
     # intersection directly, keeping the actual holdings unchanged.
     return project_convex(
-        w_raw=y, lower=lower_bounds, upper=u, budget=budget,
-        previous_weights=prev, max_turnover=max_turnover,
+        w_raw=y,
+        lower=lower_bounds,
+        upper=u,
+        budget=budget,
+        previous_weights=prev,
+        max_turnover=max_turnover,
     )
 
 
@@ -366,7 +370,10 @@ def project_convex(
         u = input_to_array(upper, n, 1.0, 1, None, "upper_bounds")
 
     w = cp.Variable(n)
-    objective = cp.Minimize(0.5 * cp.sum_squares(w - w0))
+    # Drop the constant ||w0||^2 and scale large PA candidates to avoid
+    # poor solver residuals without changing the minimizer.
+    scale = max(1.0, float(np.max(np.abs(w0))))
+    objective = cp.Minimize((0.5 * cp.sum_squares(w) - w0 @ w) / scale)
     constraints: list[Any] = [w >= lower_bounds, w <= u]
 
     if min_budget is not None:
@@ -444,7 +451,13 @@ def project_convex(
 
     prob = cp.Problem(objective, constraints)
     if solver_params is None:
-        solver_params = dict(solver=cp.CLARABEL, verbose=False)
+        solver_params = dict(
+            solver=cp.CLARABEL,
+            verbose=False,
+            tol_gap_abs=1e-10,
+            tol_gap_rel=1e-10,
+            tol_feas=1e-10,
+        )
 
     try:
         prob.solve(**solver_params)
@@ -454,8 +467,7 @@ def project_convex(
     if w.value is None or prob.status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
         raise ValueError(f"Infeasible or failed convex projection: {prob.status}")
     if not np.isfinite(w.value).all() or any(
-        np.max(np.asarray(constraint.violation())) > 1e-7
-        for constraint in constraints
+        np.max(np.asarray(constraint.violation())) > 1e-7 for constraint in constraints
     ):
         raise ValueError("Convex projection returned an infeasible solution")
     return np.asarray(w.value, dtype=float)

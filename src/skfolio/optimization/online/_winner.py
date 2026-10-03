@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import warnings
 from collections.abc import Callable
 from numbers import Integral, Real
 from typing import ClassVar, Literal
@@ -487,7 +486,6 @@ class FollowTheWinner(BaseOnlineOptimization):
         )
 
         # Resolve transaction costs and management fees once number of assets is known
-        self._ensure_previous_weights_state(num_assets)
 
         self._projector = self._initialize_projector()
         if self._foco_engine is not None:
@@ -616,9 +614,6 @@ class FollowTheWinner(BaseOnlineOptimization):
         # via _reset_state_for_fit; we must not reinitialize at every partial_fit call.
         if not self._weights_initialized:
             self._initialize_weights(num_assets)
-            # Initialize wealth tracking
-            if not self._wealth_initialized:
-                self._initialize_wealth(num_assets)
             self._apply_initial_projection()
             if self._foco_engine is not None and hasattr(self._foco_engine, "_x_t"):
                 if self._foco_engine._x_t is None:
@@ -673,47 +668,13 @@ class FollowTheWinner(BaseOnlineOptimization):
                 self._grad_buffer.pop(0)
             gradient = np.mean(self._grad_buffer, axis=0)
 
-        # Optional: add L1 turnover subgradient (gated by flag penalize_turnover).
-        # Avoid double-counting: if transaction_costs are applied in wealth accounting,
-        # skip gradient-side penalty and warn once.
         if (
             getattr(self, "penalize_turnover", False)
-            and self._current_previous_weights_ is not None
+            and self._execution_anchor is not None
         ):
-            tc = getattr(self, "_transaction_costs_arr", None)
-            prev = np.asarray(self._current_previous_weights_, dtype=float)
-            if prev.shape == self.weights_.shape:
-                costs_active = False
-                if tc is not None:
-                    if np.isscalar(tc):
-                        costs_active = bool(float(tc) > 0.0)
-                    else:
-                        costs_active = bool(np.any(np.asarray(tc, dtype=float) > 0.0))
-
-                if costs_active:
-                    # Warn once and skip penalty to avoid double counting
-                    if (
-                        not hasattr(self, "_turnover_penalty_disabled_warned")
-                        or not self._turnover_penalty_disabled_warned
-                    ):
-                        warnings.warn(
-                            "penalize_turnover is enabled but transaction_costs are nonzero; "
-                            "disabling gradient turnover penalty to avoid double counting costs.",
-                            UserWarning,
-                            stacklevel=2,
-                        )
-                        self._turnover_penalty_disabled_warned = True
-                else:
-                    # Apply subgradient penalty when no wealth-side costs are configured
-                    denom = float(np.dot(prev, effective_relatives))
-                    if denom <= 0:
-                        denom = 1e-16
-                    prev_drifted = (prev * effective_relatives) / denom
-                    delta = self.weights_ - prev_drifted
-                    if np.isscalar(tc):
-                        gradient += float(tc) * np.sign(delta)
-                    elif tc is not None:
-                        gradient += np.asarray(tc, dtype=float) * np.sign(delta)
+            gradient += self._transaction_costs_arr * np.sign(
+                self.weights_ - self._execution_anchor
+            )
 
         return gradient
 
@@ -820,12 +781,6 @@ class FollowTheWinner(BaseOnlineOptimization):
         # Step 3: Apply management fees to get effective relatives
         effective_relatives = self._compute_effective_relatives(gross_relatives)
 
-        rebalance_from = (
-            None
-            if self._current_previous_weights_ is None
-            else self._current_previous_weights_.copy()
-        )
-
         # Step 4: Compute portfolio gradient (including transaction costs)
         gradient = self._compute_portfolio_gradient(effective_relatives)
 
@@ -848,18 +803,9 @@ class FollowTheWinner(BaseOnlineOptimization):
         # Step 7: Update internal state and compute loss
         self._finalize_partial_fit_state(effective_relatives)
 
-        # Step 8: Update wealth tracking using the holdings carried into this rebalance
-        if hasattr(self, "_wealth_initialized") and self._wealth_initialized:
-            self._update_wealth(
-                trade_weights=self._last_trade_weights_,
-                effective_relatives=effective_relatives,
-                previous_weights=rebalance_from,
-            )
-
-        # Step 9: Drift current trade weights to obtain the next rebalance anchor
-        self._current_previous_weights_ = self._drift_weights(
-            self._last_trade_weights_, effective_relatives
-        )
+    def _initialize_algorithm(self, n_assets: int) -> None:
+        """Initialize the existing winner engine without learning an observation."""
+        self._ensure_initialized(np.ones(n_assets))
 
     def _reset_state_for_fit(self) -> None:
         """Reset the shared engine and objective for a fresh fit."""
