@@ -251,6 +251,11 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             ensure_2d=True,
             accept_sparse=False,
         )
+        if np.any(returns <= -1):
+            raise ValueError(
+                "Online learning requires returns greater than -1; bankrupt assets "
+                "require an explicit universe reset with fit"
+            )
         if y is not None and np.shape(y)[0] != len(returns):
             raise ValueError("y must have one row per return observation")
         if sample_weight is not None:

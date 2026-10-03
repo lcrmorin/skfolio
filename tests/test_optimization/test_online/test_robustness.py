@@ -1,14 +1,15 @@
 import numpy as np
 import pytest
+from tests.test_optimization.test_online.utils import make_stationary_returns
+
 from skfolio.optimization.online import (
-    FollowTheLoser,
-    FollowTheWinner,
     FTLStrategy,
     FTWStrategy,
-    regret,
+    FollowTheLoser,
+    FollowTheWinner,
     RegretType,
+    regret,
 )
-from tests.test_optimization.test_online.utils import make_stationary_returns
 
 
 def test_rmr_outlier_resistance():
@@ -29,7 +30,7 @@ def test_rmr_outlier_resistance():
 
     # Create a copy to corrupt
     X_corrupted = X.copy()
-    for t, i in zip(outlier_indices, asset_indices):
+    for t, i in zip(outlier_indices, asset_indices, strict=True):
         # Massive 50% drop (0.5 relative) or 100% gain (2.0 relative)
         # to confuse mean estimators
         X_corrupted[t, i] = 2.0 if rng.random() > 0.5 else 0.5
@@ -115,12 +116,5 @@ def test_zero_liquidity_handling():
     X_crash[10, 0] = -1.0  # Asset 0 dies at t=10 (return -100% -> relative 0)
 
     model_crash = FollowTheWinner(strategy=FTWStrategy.EG)
-    model_crash.fit(X_crash)
-
-    # If the model had any weight on asset 0 at t=10, wealth should drop significantly
-    # Log-wealth would be -inf if weight > 0.
-    # We want to ensure it doesn't raise an unhandled exception,
-    # though -inf wealth is mathematically correct.
-
-    # Check if weights are updated after crash
-    assert model_crash.weights_.shape == (3,)
+    with pytest.raises(ValueError, match="bankrupt assets"):
+        model_crash.fit(X_crash)
