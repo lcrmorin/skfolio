@@ -9,7 +9,7 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable
 from numbers import Integral, Real
-from typing import Any, ClassVar, Literal
+from typing import ClassVar, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -18,7 +18,7 @@ from sklearn.utils._param_validation import Interval, StrOptions
 import skfolio.typing as skt
 from skfolio.measures._enums import ExtraRiskMeasure, PerfMeasure, RiskMeasure
 from skfolio.optimization.online._autograd_objectives import create_objective
-from skfolio.optimization.online._base import OnlinePortfolioSelection
+from skfolio.optimization.online._base import BaseOnlineOptimization
 from skfolio.optimization.online._foco import (
     FirstOrderOCO,
     Predictor,
@@ -44,7 +44,7 @@ from skfolio.optimization.online._projection import IdentityProjector
 from skfolio.optimization.online._utils import CLIP_EPSILON
 
 
-class FollowTheWinner(OnlinePortfolioSelection):
+class FollowTheWinner(BaseOnlineOptimization):
     """FollowTheWinner: Online Portfolio Selection via Online Convex Optimization and momentum-based strategies.
 
     It unifies FTRL and OMD through the lens of FTRL-Proximal, which is a unified framework for FTRL and OMD.
@@ -222,7 +222,7 @@ class FollowTheWinner(OnlinePortfolioSelection):
             - "ftrl": Follow-the-Regularized-Leader (global cumulative minimization)
 
         warm_start : bool, default=True
-            Whether to warm start the estimator. If False, resets state before fitting.
+            Legacy compatibility parameter. ``fit`` always resets; use ``partial_fit`` to continue.
 
         initial_weights : array-like of shape (n_assets,) | None, default=None
             Initial portfolio weights. If None, uses uniform weights (1/n_assets).
@@ -612,7 +612,7 @@ class FollowTheWinner(OnlinePortfolioSelection):
                 )
 
         # Initialize weights only once per fit/streaming session.
-        # When warm_start=False, resetting is handled at the beginning of fit()
+        # Resetting is handled at the beginning of fit()
         # via _reset_state_for_fit; we must not reinitialize at every partial_fit call.
         if not self._weights_initialized:
             self._initialize_weights(num_assets)
@@ -812,41 +812,8 @@ class FollowTheWinner(OnlinePortfolioSelection):
         # transaction costs in wealth use the true previous trade weights.
         self._t += 1
 
-    def partial_fit(
-        self,
-        X: npt.ArrayLike,
-        y: npt.ArrayLike | None = None,
-        sample_weight: npt.ArrayLike | None = None,
-        **fit_params: Any,
-    ) -> FollowTheWinner:
-        """Perform one online update with a single period of net returns.
-
-        In OCO, ``partial_fit`` is the core update and must receive exactly one
-        row of data (one period). Use :meth:`fit` to iterate over multiple rows
-        in sequential order.
-
-        Parameters
-        ----------
-        X : array-like of shape (n_assets,) or (1, n_assets)
-            Net returns for a single period. Internally converted to price
-            relatives via ``1.0 + r_t``.
-        y : Ignored
-            Present for API consistency.
-        sample_weight : array-like of shape (n_samples,), default=None
-            Sample weights. Currently ignored but present for API consistency.
-        **fit_params : Any
-            Additional parameters (unused).
-
-        Returns
-        -------
-        OPS
-            The estimator instance.
-        """
-        # Step 1: Validate input and preprocess to gross relatives
-        gross_relatives = self._validate_and_preprocess_partial_fit_input(
-            X, y, sample_weight
-        )
-
+    def _update_one(self, gross_relatives: np.ndarray) -> None:
+        """Run Carlo's winner update for one validated observation."""
         # Step 2: Initialize engine and weights if needed
         self._ensure_initialized(gross_relatives)
 
@@ -893,12 +860,14 @@ class FollowTheWinner(OnlinePortfolioSelection):
             self._last_trade_weights_, effective_relatives
         )
 
-        return self
-
     def _reset_state_for_fit(self) -> None:
-        """Reset internal state when warm_start=False."""
+        """Reset the shared engine and objective for a fresh fit."""
         super()._reset_state_for_fit()
         self._foco_engine = None
+        if hasattr(self, "_objective_fn"):
+            del self._objective_fn
+        if hasattr(self, "_turnover_penalty_disabled_warned"):
+            del self._turnover_penalty_disabled_warned
         self.cumulative_loss_ = 0.0
         if hasattr(self, "_grad_buffer"):
             del self._grad_buffer

@@ -12,14 +12,13 @@ from typing import Any, ClassVar, Literal
 import numpy as np
 import numpy.typing as npt
 from sklearn.utils._param_validation import Interval, StrOptions
-from sklearn.utils.validation import validate_data
 
 import skfolio.typing as skt
 from skfolio.optimization.online._autograd_objectives import (
     BaseObjective,
     create_mean_reversion_objective,
 )
-from skfolio.optimization.online._base import OnlinePortfolioSelection
+from skfolio.optimization.online._base import BaseOnlineOptimization
 from skfolio.optimization.online._foco import FirstOrderOCO
 from skfolio.optimization.online._mirror_maps import (
     BaseMirrorMap,
@@ -46,10 +45,10 @@ from skfolio.optimization.online._strategies import (
     OLMARStrategy,
     PAMRStrategy,
 )
-from skfolio.optimization.online._utils import CLIP_EPSILON, net_to_relatives
+from skfolio.optimization.online._utils import CLIP_EPSILON
 
 
-class FollowTheLoser(OnlinePortfolioSelection):
+class FollowTheLoser(BaseOnlineOptimization):
     r"""Follow-the-Loser: Online Portfolio Selection via mean-reversion strategies.
 
     This family of algorithms transfers wealth from recent winners to recent losers,
@@ -181,7 +180,7 @@ class FollowTheLoser(OnlinePortfolioSelection):
         Only used with ``update_mode="md"``.
 
     warm_start : bool, default=True
-        Whether to warm start the estimator. If False, resets state before fitting.
+        Legacy compatibility parameter. ``fit`` always resets; use ``partial_fit`` to continue.
 
     initial_weights : array-like of shape (n_assets,) | None, default=None
         Initial portfolio weights. If None, uses uniform weights (1/n_assets).
@@ -673,27 +672,8 @@ class FollowTheLoser(OnlinePortfolioSelection):
             return getattr(self._strategy_impl, "_mu", None)
         return None
 
-    def partial_fit(
-        self,
-        X: npt.ArrayLike,
-        y: npt.ArrayLike | None = None,
-        sample_weight: npt.ArrayLike | None = None,
-        **fit_params: Any,
-    ) -> FollowTheLoser:
-        # Initial checking and parameters validation
-        self._validate_params()
-        first_call = not hasattr(self, "n_features_in_")
-        X = validate_data(
-            self, X=X, y=y, reset=first_call, dtype=float, ensure_2d=False
-        )
-
-        # Convert to relatives and ensure a single period
-        X_rel = net_to_relatives(X)
-        if X_rel.shape[0] > 1:
-            raise ValueError(
-                "partial_fit expects a single period (1D or single-row 2D). Use fit for multiple rows."
-            )
-        x_t_gross = np.asarray(X_rel.squeeze(), dtype=float)
+    def _update_one(self, x_t_gross: np.ndarray) -> None:
+        """Run Carlo's loser strategy for one validated observation."""
         d = int(x_t_gross.shape[0])
 
         # Initialize components
@@ -752,10 +732,9 @@ class FollowTheLoser(OnlinePortfolioSelection):
         # Drift current trade weights to obtain the next rebalance anchor
         self._current_previous_weights_ = self._drift_weights(trade_w, x_t)
         self._t += 1
-        return self
 
     def _reset_state_for_fit(self) -> None:
-        """Reset internal state when warm_start=False."""
+        """Reset the strategy, predictor and engine for a fresh fit."""
         super()._reset_state_for_fit()
         self._strategy_impl = None
         self._predictor = None

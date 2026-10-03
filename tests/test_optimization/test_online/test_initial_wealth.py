@@ -216,7 +216,7 @@ class TestInitialWealthValidation:
 
     def test_negative_wealth_raises_error(self):
         """Test negative initial_wealth raises ValueError."""
-        with pytest.raises(ValueError, match="must be positive"):
+        with pytest.raises(ValueError, match="initial_wealth"):
             est = FollowTheWinner(
                 strategy="eg",
                 initial_wealth=-1000.0,
@@ -227,7 +227,7 @@ class TestInitialWealthValidation:
 
     def test_zero_wealth_raises_error(self):
         """Test zero initial_wealth raises ValueError."""
-        with pytest.raises(ValueError, match="must be positive"):
+        with pytest.raises(ValueError, match="initial_wealth"):
             est = FollowTheWinner(
                 strategy="eg",
                 initial_wealth=0.0,
@@ -419,8 +419,8 @@ class TestWarmStart:
         # Wealth should be reset and follow same trajectory
         assert np.isclose(first_wealth, second_wealth, rtol=1e-6)
 
-    def test_warm_start_true_preserves_wealth(self):
-        """Test warm_start=True continues wealth tracking."""
+    def test_partial_fit_preserves_wealth(self):
+        """Test partial_fit continues wealth tracking after fit."""
         est = FollowTheWinner(
             strategy="eg",
             initial_wealth=10000.0,
@@ -435,8 +435,8 @@ class TestWarmStart:
         est.fit(X1)
         wealth_after_first = est.wealth_
 
-        # Second fit with warm_start=True
-        est.fit(X2)
+        # Continue explicitly using partial_fit
+        est.partial_fit(X2)
         wealth_after_second = est.wealth_
 
         # Wealth should continue from first fit

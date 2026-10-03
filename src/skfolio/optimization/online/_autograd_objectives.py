@@ -69,9 +69,21 @@ from dataclasses import dataclass
 from functools import partial
 from typing import Any
 
-import autograd.numpy as anp
 import numpy as np
-from autograd import grad
+
+try:
+    import autograd.numpy as anp
+    from autograd import grad
+except ImportError:
+    # Analytical objectives must work without a runtime autograd dependency.
+    anp = np
+
+    def grad(*args: Any, **kwargs: Any) -> Any:
+        raise ImportError(
+            "autograd is required only for use_autograd=True; "
+            "use analytical gradients or install autograd for verification."
+        )
+
 
 from skfolio.measures import (
     cdar,

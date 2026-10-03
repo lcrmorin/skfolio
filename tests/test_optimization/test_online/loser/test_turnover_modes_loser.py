@@ -28,7 +28,7 @@ def test_loser_no_double_counting_between_penalty_and_wealth_costs():
     # Initialize strategy
     a.partial_fit(X[0])
     a._strategy_impl.penalize_turnover = True
-    a.fit(X[1:])
+    a.partial_fit(X[1:])
 
     # B) No gradient penalty, same wealth-side costs
     b = FollowTheLoser(

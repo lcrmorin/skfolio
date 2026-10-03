@@ -4,6 +4,7 @@
 # Author: Carlo Nicolini <nicolini.carlo@gmail.com>
 # SPDX-License-Identifier: BSD-3-Clause
 
+from skfolio.optimization.online._base import BaseOnlineOptimization
 from skfolio.optimization.online._benchmark import BCRP, CRP, UCRP, BestStock
 from skfolio.optimization.online._loser import (
     FTLStrategy,
@@ -13,6 +14,7 @@ from skfolio.optimization.online._regret import RegretType, plot_regret_curve, r
 from skfolio.optimization.online._winner import FTWStrategy, FollowTheWinner
 
 __all__ = [
+    "BaseOnlineOptimization",
     "BCRP",
     "BestStock",
     "CRP",

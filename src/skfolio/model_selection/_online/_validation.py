@@ -582,6 +582,13 @@ def _online_walk_forward(
     )
 
     splits = list(cv.split(X))
+    if getattr(estimator, "_requires_single_period_evaluation", False) and any(
+        len(test) != 1 for _, test in splits
+    ):
+        raise ValueError(
+            "Online portfolio selection requires one observation per test window "
+            "(test_size=1). Larger-window execution semantics are not defined."
+        )
 
     if len(splits) == 0:
         raise ValueError(

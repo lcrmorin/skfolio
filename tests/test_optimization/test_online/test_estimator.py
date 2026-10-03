@@ -125,7 +125,7 @@ def test_management_fees_flip_preference():
 
 
 def test_partial_fit_input_and_warnings_on_sample_weight_and_nonpositive_return():
-    # partial_fit must accept a single row; multiple rows should raise
+    # partial_fit accepts both individual observations and causal blocks
     X = make_stationary_returns(T=5, gap=0.01, n=2)
     est = FollowTheWinner(
         strategy=FTWStrategy.EG, update_mode="omd", learning_rate=0.2, warm_start=False
@@ -135,9 +135,9 @@ def test_partial_fit_input_and_warnings_on_sample_weight_and_nonpositive_return(
     with pytest.warns(UserWarning, match="sample_weight is ignored"):
         est.partial_fit(X[0:1, :], sample_weight=np.ones(1))
 
-    # Multi-row to partial_fit should error
-    with pytest.raises(ValueError, match="expects a single row"):
-        est.partial_fit(X[0:2, :])
+    # The block continues after the first observation.
+    est.partial_fit(X[0:2, :])
+    assert est.n_observations_ == 3
 
 
 def test_objective_not_implemented_raises_value_error():
@@ -216,7 +216,7 @@ def test_warm_start_reset_vs_non_warm_behavior():
     W2 = est_cold.all_weights_.copy()
     np.testing.assert_allclose(W1, W2, atol=1e-12, rtol=0)
 
-    # With warm_start=True, second fit continues from previous state, yielding different path
+    # The legacy warm_start flag no longer changes the reset contract.
     est_warm = FollowTheWinner(
         strategy=FTWStrategy.EG, update_mode="omd", learning_rate=0.2, warm_start=True
     )
@@ -224,8 +224,10 @@ def test_warm_start_reset_vs_non_warm_behavior():
     W3 = est_warm.all_weights_.copy()
     est_warm.fit(X)
     W4 = est_warm.all_weights_.copy()
-    # Paths differ since state carries over
-    assert not np.allclose(W3, W4, atol=1e-12, rtol=0)
+    np.testing.assert_allclose(W3, W4, atol=1e-12, rtol=0)
+    est_warm.partial_fit(X)
+    assert est_warm.n_observations_ == 2 * len(X)
+    assert not np.allclose(W3, est_warm.all_weights_[len(X) :], atol=1e-12, rtol=0)
 
 
 def test_omd_lastgrad_predictor_updates_prev_prediction():

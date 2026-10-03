@@ -29,7 +29,7 @@ from skfolio.portfolio import MultiPeriodPortfolio, Portfolio
 from skfolio.utils.tools import input_to_array
 
 
-class OnlinePortfolioSelection(BaseOptimization, OnlineParameterConstraintsMixin):
+class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
     """Online Portfolio Selection (OPS) base class.
 
     This class serves as a foundation for implementing various online portfolio
@@ -306,68 +306,79 @@ class OnlinePortfolioSelection(BaseOptimization, OnlineParameterConstraintsMixin
             )
         return gross_relatives * (1.0 - fees)
 
-    def _validate_and_preprocess_partial_fit_input(
+    _requires_single_period_evaluation = True
+
+    def partial_fit(
         self,
         X: npt.ArrayLike,
         y: npt.ArrayLike | None = None,
         sample_weight: npt.ArrayLike | None = None,
-    ) -> np.ndarray:
-        """Validate and preprocess input for partial_fit.
+        **fit_params: Any,
+    ) -> BaseOnlineOptimization:
+        """Continue learning from one observation or a causal block of net returns.
 
-        Returns
-        -------
-        np.ndarray
-            Gross relatives for a single period as 1D array.
+        The target after observing row t is intended for period t+1. Validation
+        covers the complete block before any numerical update. Legacy trajectory
+        and wealth attributes are retained during the execution-layer migration.
         """
-        # Validate parameters
         self._validate_params()
-
-        # Check if this is the first call to partial_fit
-        first_call = not hasattr(self, "wealth_")
-
-        # Validate input data - reset=True only on first call
-        X = validate_data(
+        if fit_params:
+            raise TypeError(f"Unsupported fit parameters: {sorted(fit_params)}")
+        if not hasattr(X, "columns"):
+            X = np.asarray(X)
+            if X.ndim == 1:
+                X = X.reshape(1, -1)
+        returns = validate_data(
             self,
             X=X,
-            y=None,  # y is always ignored in OPS
-            reset=first_call,
+            reset=not self._is_initialized,
             dtype=float,
-            ensure_2d=False,
-            allow_nd=False,
+            ensure_2d=True,
             accept_sparse=False,
         )
-
-        # Handle sample_weight if provided (though it's ignored)
         if sample_weight is not None:
-            sample_weight = _check_sample_weight(sample_weight, X)
+            _check_sample_weight(sample_weight, returns)
             warnings.warn(
                 "sample_weight is ignored for online estimators.",
                 UserWarning,
-                stacklevel=3,
+                stacklevel=2,
             )
-
-        # Convert to proper shape for partial_fit (single row)
-        net_returns = np.asarray(X, dtype=float)
-
-        # Ensure we have the right shape for partial_fit
-        if net_returns.ndim == 1:
-            # Single sample as 1D array - this is expected for partial_fit
-            pass
-        elif net_returns.ndim == 2:
-            if net_returns.shape[0] > 1:
-                raise ValueError(
-                    "partial_fit expects a single row (one period). Use fit for multiple rows."
+        trade_list = []
+        wealth_list = []
+        initial_wealth = None
+        for row in net_to_relatives(returns):
+            self._update_one(row)
+            if not hasattr(self, "initial_weights_"):
+                self.initial_weights_ = self._last_trade_weights_.copy()
+                initial_wealth = (
+                    1.0
+                    if self.initial_wealth is None
+                    else float(np.sum(self.initial_wealth))
                 )
-            # Single sample as 2D array (1, n_features) - squeeze to 1D
-            net_returns = net_returns.squeeze(0)
-        else:
-            raise ValueError("Input must be 1D or 2D array")
+            self.n_observations_ = self._t
+            trade_list.append(self._last_trade_weights_.copy())
+            wealth_list.append(self.wealth_)
+        history = np.asarray(trade_list)
+        self.all_weights_ = (
+            np.vstack((self.all_weights_, history))
+            if hasattr(self, "all_weights_")
+            else history
+        )
+        prior_wealth = (
+            self.all_wealth_ if hasattr(self, "all_wealth_") else [initial_wealth]
+        )
+        self.all_wealth_ = np.concatenate((prior_wealth, wealth_list))
+        return self
 
-        gross_relatives = net_to_relatives(net_returns).squeeze()
-        return gross_relatives
+    def _update_one(self, gross_relatives: np.ndarray) -> None:
+        """Observe one return vector using the existing strategy machinery."""
+        raise NotImplementedError
 
     def _reset_state_for_fit(self) -> None:
-        """Reset internal state when warm_start=False. Subclasses override to add specific state."""
+        """Clear learned state; subclasses also reset their numerical components."""
+        for name in list(vars(self)):
+            if name.endswith("_") and not name.startswith("__"):
+                delattr(self, name)
         self._weights_initialized = False
         self._wealth_initialized = False
         self._is_initialized = False
@@ -384,58 +395,14 @@ class OnlinePortfolioSelection(BaseOptimization, OnlineParameterConstraintsMixin
         X: npt.ArrayLike,
         y: npt.ArrayLike | None = None,
         **fit_params: Any,
-    ) -> OnlinePortfolioSelection:
-        """Iterate over rows and call partial_fit for each period.
+    ) -> BaseOnlineOptimization:
+        """Reset learned state and process observations causally.
 
-        In OCO, ``fit`` is a convenience wrapper. It does not aggregate gradients or
-        perform multi-epoch training. Each row of ``X`` is processed once in order.
-
-        Parameters
-        ----------
-        X : array-like of shape (T, n_assets) or (n_assets,)
-            Net returns per period.
-        y : Ignored
-            Present for API consistency.
-        **fit_params : Any
-            Additional parameters (unused).
-
-        Returns
-        -------
-        self
-            The estimator instance.
+        ``warm_start`` is temporarily accepted for source compatibility but no
+        longer controls this method. Use ``partial_fit`` to continue a stream.
         """
-        if not self.warm_start:
-            self._reset_state_for_fit()
-
-        trade_list: list[np.ndarray] = []
-        X_arr = np.asarray(X, dtype=float)
-
-        # Initialize wealth before loop if needed (creates wealth_ attribute)
-        if X_arr.shape[0] > 0 and not self._wealth_initialized:
-            num_assets = X_arr.shape[1]
-            if not self._weights_initialized:
-                self._initialize_weights(num_assets)
-            self._initialize_wealth(num_assets)
-
-        # Start wealth tracking list (wealth_ now exists as a learned attribute)
-        wealth_list: list[float] = [self.wealth_] if hasattr(self, "wealth_") else []
-
-        for t in range(X_arr.shape[0]):
-            self.partial_fit(X_arr[t][None, :], y, sample_weight=None, **fit_params)
-            if self._last_trade_weights_ is not None:
-                trade_list.append(self._last_trade_weights_.copy())
-            # Append wealth after each period (wealth_ created in first partial_fit if not already)
-            if hasattr(self, "wealth_"):
-                wealth_list.append(self.wealth_)
-
-        if trade_list:
-            self.all_weights_ = np.vstack(trade_list)
-
-        # Store wealth history (only if wealth tracking was enabled)
-        if wealth_list:
-            self.all_wealth_ = np.array(wealth_list)
-
-        return self
+        self._reset_state_for_fit()
+        return self.partial_fit(X, y, **fit_params)
 
     def _clean_input(
         self,
@@ -493,6 +460,12 @@ class OnlinePortfolioSelection(BaseOptimization, OnlineParameterConstraintsMixin
         """
         self.fit(X, y, **fit_params)
 
+        return self._portfolio_from_history(X, self.all_weights_)
+
+    def _portfolio_from_history(
+        self, X: npt.ArrayLike, weights: np.ndarray
+    ) -> MultiPeriodPortfolio:
+        """Build the legacy trajectory until execution moves to model selection."""
         if self.portfolio_params is None:
             ptf_kwargs = {}
         else:
@@ -527,17 +500,15 @@ class OnlinePortfolioSelection(BaseOptimization, OnlineParameterConstraintsMixin
             # Create kwargs for this specific portfolio
             ptf_kwargs_i = ptf_kwargs.copy()
             ptf_kwargs_i["previous_weights"] = (
-                self.all_weights_[i].copy() if prev_w is None else prev_w
+                weights[i].copy() if prev_w is None else prev_w
             )
 
-            ptf = Portfolio(
-                X=X_i, weights=self.all_weights_[i], name=name, **ptf_kwargs_i
-            )
+            ptf = Portfolio(X=X_i, weights=weights[i], name=name, **ptf_kwargs_i)
             portfolios.append(ptf)
 
             # Drift weights for the NEXT period's previous_weights (if drift_aware logic applies)
             returns_i = 1.0 + X_arr[i]
-            prev_w = self._drift_weights(self.all_weights_[i], returns_i)
+            prev_w = self._drift_weights(weights[i], returns_i)
 
         return MultiPeriodPortfolio(portfolios=portfolios, name=name)
 
@@ -572,5 +543,12 @@ class OnlinePortfolioSelection(BaseOptimization, OnlineParameterConstraintsMixin
                 f" but {type(self).__name__} was fitted with {self.n_features_in_} features."
             )
         other = deepcopy(self)
-        other.warm_start = True
-        return other.fit_predict(X=X_arr, y=y)
+        # Preserve the execution anchor at the beginning of this continuation.
+        previous = deepcopy(other._current_previous_weights_)
+        other.partial_fit(X_arr, y)
+        other._configured_previous_weights_ = previous
+        return other._portfolio_from_history(X_arr, other.all_weights_[-len(X_arr) :])
+
+
+# Temporary compatibility alias for Carlo's imports and downstream experiments.
+OnlinePortfolioSelection = BaseOnlineOptimization
