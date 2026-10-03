@@ -1,57 +1,70 @@
-Local validation after execution fixes (2026-10-03)
-==================================================
+Local integration validation (2026-10-03)
+=======================================
 
-Final relevant suites: 2380 passed, 1 existing expected failure, 46 warnings.
-Runtime approximately 36 seconds. Command:
+Full repository suite: **9260 passed, 1 skipped, 1 existing expected failure,
+66 warnings**, in approximately 152 seconds with two workers.
 
 .. code-block:: console
 
     PYTHONPATH=src:/private/tmp/skfolio-carlo-test-deps \
       /Users/lucasmorin/skfolio/.venv/bin/python -m pytest \
-      -q --import-mode=importlib -o addopts='' \
-      tests/test_optimization/test_online tests/test_model_selection/test_online \
-      tests/test_measures tests/test_portfolio
+      -q -n 2 --dist loadfile --import-mode=importlib -o addopts='' tests
 
-This is not a full-repository test run. Autograd is only a temporary verification
-dependency; analytical operation and the 30 new execution-contract cases pass
-without it. The original engine, mirror-map and objective tests remain in the
-suite. Legacy tests of estimator-owned wealth were migrated to explicit Portfolio
-accounting and initialization tests, rather than skipped or marked expected-fail.
+The final added online-evaluation metadata regression was checked separately after
+full-suite collection: all **8 causal-prior tests passed**. No production code changed
+after the full suite started. The mirror-map suite passed all **67 tests** after
+correcting the domain of a randomized log-barrier round-trip test.
 
-New execution coverage
-----------------------
+An earlier full run had one failure because additive test noise pushed a negative
+log-barrier dual coordinate above zero, outside the conjugate domain. The test now
+uses seeded multiplicative perturbations in the negative orthant. No tolerance was
+loosened and no failing test was skipped.
 
-* Pre-observation loss and cumulative loss timing.
-* Fresh external anchors across winner, PAMR, OLMAR, RMR and CWMR, including cold starts.
-* Zero/positive turnover infeasibility and unchanged actual holdings.
-* Final-target synchronization after EG mixing.
-* Warmup entry policy, rejection of ambiguous turnover/cost blocks, and no learner wealth.
-* Independent manual execution with drift, fees, costs and turnover; online_score parity.
-* Initial-period evaluation and additive fee conventions.
-* Failure/nonfinite-target guards requiring reset before prediction or continuation.
-* Optional target storage, named holdings and read-only anchor copies.
-* Entry-only overrides, purged-gap rejection, and online search final-refit behaviour.
+Static checks
+-------------
 
-Reproducible current probes are in trace_execution.py, with execution_trace.json
-recording their output. The previous mapping/trace are separately archived.
+* Full repository Ruff check: pass.
+* Full repository Ruff format check: pass (577 Python/config files).
+* Full source ty check with the workspace Python environment: pass.
+* Numpydoc GL08 validation on all 23 changed source files: pass. Existing warnings
+  about nonstandard section headings remain non-fatal.
+* git diff --check: pass.
 
-Static checks and remaining limits
----------------------------------
+Autograd is still optional at runtime. It is now included in the development group
+so CI can run Carlo's analytical/autograd parity tests. The local test backend was
+installed only under /private/tmp/skfolio-carlo-test-deps. Typing, the new lifecycle
+and prior tests, and the example also work without that optional backend.
 
-* git diff --check passes.
-* Current Ruff rules pass for the new execution tests and modified model-selection
-  module. Modified source was checked for imports/undefined names and formatted.
-* The imported online module still has 189 full-Ruff diagnostics, mainly missing
-  annotations from the original implementation. This remains a documented backlog;
-  a full lint/type/docstring pass has not been claimed.
-* Solver and numerical warnings inherited from the original strategy tests remain.
-* Shared constraints/native geometry, priors, general block execution, dynamic
-  universes and transactional rollback/fallback are separate unfinished work.
+Coverage of the integration contract
+-----------------------------------
 
-Baseline reference
-------------------
+* Pre-observation loss; next-period targets; fit reset and causal block equivalence.
+* Fresh external turnover anchors and solver feasibility, including zero turnover.
+* Shared budget/exposure/group expressions and unchanged convex optimizer behavior.
+* Entropy projection preserves free-coordinate ratios; fast and convex KL solutions
+  agree; short exposure and simultaneous variance/tracking constraints are enforced.
+* Named bounds/groups are aligned to DataFrame columns, while changed column order
+  or asset universes are rejected until reset.
+* Optional priors are cloned and updated one row at a time. Metadata, targets and
+  requested sample weights are aligned through fit and online evaluation.
+* Real EmpiricalPrior/EWMu/EWCovariance warmup, finite covariance at execution time,
+  no default prior, conflicting covariance sources and reset after prior failure.
+* Missing/non-finite/bankrupt returns are rejected before consuming a valid prefix.
+* Common Portfolio accounting, drift/fees/costs, explicit initial allocation,
+  optional diagnostic history, entry overrides, chronological evaluation and search.
 
-Carlo's original import passed 647 tests with one expected failure before adaptation.
-The previous lifecycle integration passed 2346 cases across its relevant suites.
-The increased current count reflects added execution checks and migration of
-obsolete accounting assertions to the current ownership model.
+Runnable example
+----------------
+
+examples/online_learning/plot_4_online_exponentiated_gradient.py runs without network
+access or autograd. Plain EG and EG with a causal variance constraint each produce
+50 evaluation periods. A covariance-repair warning during small-sample warmup is
+expected. The current execution trace is in execution_trace.json.
+
+Review limits
+-------------
+
+This remains a local discussion integration. Passing the suite does not imply that
+arbitrary adaptive mirror geometries, dynamic universes, transaction rollback,
+online fallback or larger execution windows are implemented. See REVIEW_PLAN.rst
+for explicit boundaries and proposed review splits. No PR or comment was published.

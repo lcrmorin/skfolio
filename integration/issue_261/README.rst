@@ -52,9 +52,9 @@ From this worktree::
     PY
 
 The generic winner default remains Carlo's FTRL configuration. Set OMD explicitly
-when comparing with the original #382 draft. Algorithm geometry and richer
-constraint integration are still separate work; the imported generic projection
-is not a completed KL-constrained EG implementation.
+when comparing with the original #382 draft. Entropy updates now use KL projection
+for bounds and richer convex intersections. Native constrained geometry for all
+adaptive/composite maps remains a separate extension.
 
 For a unit-budget entry from cash under a restrictive cap, explicitly relax entry
 with entry_rebalancing_params={"max_turnover": None}, or supply feasible holdings.
@@ -88,3 +88,29 @@ Architecture discussion sources
 * https://github.com/skfolio/skfolio/issues/261#issuecomment-5441142865
 * https://github.com/skfolio/skfolio/issues/261#issuecomment-5686429395
 * https://github.com/skfolio/skfolio/pull/382#issuecomment-5887036683
+
+Current integration additions
+-----------------------------
+
+* d40ae7f: entropy geometry, shared budget/exposure constraints and projection fixes.
+* bc1a3a3: shared named/group expressions and projection dispatch cleanup.
+* ef3cc34: cloned causal priors, metadata routing, covariance warmup and named inputs.
+* 15b9afb: unsupported return/universe rejection with regression coverage.
+
+The final validation/compatibility and documentation commits follow these changes.
+See REVIEW_PLAN.rst for proposed PR boundaries and a discussion message. The example
+at examples/online_learning/plot_4_online_exponentiated_gradient.py runs without
+network access or autograd. Both the plain EG and covariance-constrained evaluation
+produce 50 out-of-sample periods.
+
+Supported statistical integration is optional incremental priors, with covariance
+consumed by a variance bound. NaN covariance is allowed only during learning-only
+warmup. Metadata, y and requested sample weights are sliced by observation. All
+execution decisions requiring covariance must see a finite matrix. A missing prior
+remains absent; the algorithm's adaptive matrices are never treated as covariance.
+
+Returns must be finite and strictly greater than -1. Asset names/order are fixed
+until fit resets the stream. Numerical or prior failures require fit before reuse;
+there is no automatic rollback or fallback. Bigger execution windows and constrained
+streaming blocks remain outside the supported contract. The public family API has
+not been redesigned.

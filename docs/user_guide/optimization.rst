@@ -1016,3 +1016,46 @@ Example: proceed without raising and retrieve failure diagnostics
 
 For a complete tutorial illustrating failure handling and fallbacks, see
 :ref:`sphx_glr_auto_examples_mean_risk_plot_17_failure_and_fallbacks.py`.
+
+Online optimization discussion draft
+************************************
+
+The ``skfolio.optimization.online`` module adapts Carlo Nicolini's shared online
+convex optimization framework. ``FollowTheWinner`` and ``FollowTheLoser`` are the
+current family interfaces; the final public estimator names remain under review.
+See :ref:`sphx_glr_auto_examples_online_learning_plot_4_online_exponentiated_gradient.py`
+for a complete example with bounds, execution costs and optional causal covariance.
+
+``fit(X)`` resets algorithm and statistical state. ``partial_fit(X)`` processes each
+row in order. After observing row t, ``weights_`` is the target for t+1. Algorithm
+state (targets, accumulated gradients and adaptive matrices) is distinct from an
+optional ``prior_estimator`` and from the actual holdings tracked by ``Portfolio``.
+No prior is constructed when ``prior_estimator=None``.
+
+The shared OCO engine supports OMD and FTRL. For entropy maps, box-budget constraints
+use a scalar KL projection; richer constraints use a KL objective with CVXPY.
+Euclidean maps retain Euclidean projection. Weight, exposure, budget and named
+linear constraint expressions are shared with the convex optimizer. Arbitrary
+adaptive mirror-map geometry under rich constraints still requires further work.
+
+A supplied prior must support ``partial_fit``. It is cloned and updated causally,
+with row-aligned targets and requested metadata. Its covariance is used for a
+``variance_bound``. During learning-only warmup rows, unavailable covariance does
+not constrain the historical target; a finite covariance is mandatory before an
+execution decision. The explicit initial allocation precedes statistical learning.
+Covariance and ``prior_estimator`` cannot both be supplied.
+
+Use ``model_selection.online_predict(..., test_size=1)`` for execution evaluation,
+with ``portfolio_params={"weight_drift": True}`` for drifted holdings. Direct
+streaming callers supply ``previous_weights`` at every rebalance. Learning blocks
+with turnover limits or transaction costs are supported only during warmup.
+Metadata for evaluation goes through ``model_selection.online_predict``; the
+legacy ``fit_predict`` convenience method does not accept evaluation metadata.
+
+Input blocks must be finite, have returns strictly greater than -1, and retain the
+same asset names and ordering. Invalid blocks are rejected before their valid prefix
+is consumed. After an update fails internally, prediction and continuation are
+blocked until ``fit`` resets all learning state. Automatic fallback, transactional
+rollback, missing/bankrupt asset handling, dynamic universes and larger evaluation
+windows remain separate extensions. ``store_weights=False`` disables diagnostic
+history; it does not change execution accounting.

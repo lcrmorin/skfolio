@@ -127,11 +127,32 @@ Implementation locations
 
 All paths above are below src/skfolio/.
 
+Current constraints and statistical integration
+----------------------------------------------
+
+Weight/exposure, budget and named linear constraint expressions are shared with
+ConvexOptimization. The OCO engine requests entropy geometry for entropy maps;
+bounded-simplex KL projection has a fast path, and richer constraints use CVXPY.
+Euclidean maps keep Euclidean projection. Statistical covariance and tracking
+constraints can both be active; the short-exposure cap is an upper bound.
+
+A configured prior is cloned and updated one row at a time before producing the
+next target. It supplies covariance only when variance_bound is requested. During
+learning-only warmup, unavailable covariance does not constrain historical targets.
+At an execution decision the covariance must be finite on the complete fixed
+universe. y and requested metadata, including sample weights, follow the same row.
+No prior is created by default. fit resets both algorithm and fitted prior state.
+
+Input blocks containing missing/non-finite or <= -100% returns are rejected before
+processing their valid prefix. Changed feature names/order require a fresh fit.
+These are rejection policies, not support for bankrupt or changing-universe streams.
+A failing prior update has the same reset-required semantics as a kernel failure.
+
 Remaining independent work
 --------------------------
 
-Shared constraints and native KL geometry for bounded EG; optional causal priors
-and metadata routing; final public estimator/alias API; missing/bankrupt returns
-and changing universes; transactional recovery/fallback; delayed execution and
-larger windows; inherited strict lint/type/docstring work. These are not completed
-by fixing execution ownership. Legacy return clipping is unchanged.
+Final public estimator/alias API; native constraints for arbitrary adaptive mirror
+maps; more risk expressions, factor and mixed-integer constraints; missing/bankrupt
+asset recovery and changing universes; transactional rollback/fallback; row-aligned
+anchors for constrained blocks and larger evaluation windows. Strict lint, type and
+docstring checks are now covered; see VALIDATION.rst for the final results.

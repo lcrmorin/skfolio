@@ -1,12 +1,12 @@
 {
   "winner": {
     "first_external_anchor_target": [
-      0.8,
-      0.2
+      0.799999999988507,
+      0.200000000002835
     ],
     "refreshed_external_anchor_target": [
-      0.2,
-      0.8
+      0.20000000000027723,
+      0.7999999999991264
     ],
     "optimizer_books_wealth": false
   },
@@ -27,8 +27,8 @@
     "warmup_rows": 2,
     "evaluated_periods": 3,
     "later_turnover": [
-      0.0,
-      0.0
+      2.5793644997662568e-11,
+      1.4181378293898206e-11
     ]
   }
 }
