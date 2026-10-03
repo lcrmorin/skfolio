@@ -47,7 +47,7 @@ def test_blocks_and_rows_preserve_the_same_strategy_state(estimator, returns):
         assert isinstance(model, BaseOnlineOptimization)
         assert_allclose(model.weights_, batch.weights_, atol=1e-12)
         assert_allclose(model.all_weights_, batch.all_weights_, atol=1e-12)
-        assert_allclose(model.all_wealth_, batch.all_wealth_, atol=1e-12)
+        assert not hasattr(model, "wealth_")
         assert model.n_observations_ == len(returns)
         assert_allclose(model.initial_weights_, batch.all_weights_[0])
         # A further update also checks hidden predictors and adaptive state.
@@ -62,7 +62,7 @@ def test_fit_resets_even_with_legacy_warm_start(estimator, returns):
     estimator.partial_fit(returns).fit(returns[:6])
     fresh = clone(estimator).fit(returns[:6])
     assert_allclose(estimator.weights_, fresh.weights_)
-    assert_allclose(estimator.all_wealth_, fresh.all_wealth_)
+    assert_allclose(estimator.all_weights_, fresh.all_weights_)
     assert estimator.n_observations_ == 6
 
 

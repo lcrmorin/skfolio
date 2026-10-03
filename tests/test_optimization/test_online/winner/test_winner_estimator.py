@@ -38,24 +38,21 @@ def test_array_transaction_costs_gating_no_ambiguous_bool():
         transaction_costs=np.array([0.001, 0.0, 0.0]),
         management_fees=0.0,
     )
-    # Enable gradient-side turnover penalty (will be auto-disabled when costs>0)
+    # Enable a decision penalty, independent of booked transaction costs.
     est.penalize_turnover = True
 
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
         est.partial_fit(x_net)
 
-        # No exception, weights and wealth updated
+        # No exception; learning updates without booking wealth.
         assert hasattr(est, "weights_")
         assert np.isfinite(est.weights_).all()
-        assert hasattr(est, "wealth_")
-        assert np.isfinite(est.wealth_)
+        assert not hasattr(est, "wealth_")
+        assert np.isfinite(est.loss_)
 
-        # Expect a single warning that gradient penalty is disabled to avoid double counting
-        msgs = "\n".join(str(ww.message).lower() for ww in w)
-        assert ("turnover" in msgs and "penal" in msgs) or (
-            "turnover" in msgs and "disabled" in msgs
-        )
+        # Accounting no longer disables a legitimate optimization penalty.
+        assert not any("disabled" in str(item.message).lower() for item in w)
 
 
 def test_smooth_prediction(X_small):

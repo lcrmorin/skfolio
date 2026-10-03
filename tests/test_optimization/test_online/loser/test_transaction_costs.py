@@ -11,68 +11,37 @@ from skfolio.optimization.online import FollowTheLoser
 @pytest.mark.parametrize("strategy", ["olmar", "pamr"])
 @pytest.mark.parametrize("update_mode", ["pa", "md"])
 def test_transaction_costs_reduce_turnover(X_small, strategy, update_mode):
-    """Transaction costs should reduce portfolio turnover in PA mode."""
-    np.random.seed(42)
-
-    # Without transaction costs
-    model_no_cost = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.0,
-        warm_start=False,
+    anchor = np.array([0.8, 0.2])
+    model = FollowTheLoser(
+        strategy=strategy, update_mode=update_mode, previous_weights=anchor
     )
-    model_no_cost.fit(X_small)
-    # With transaction costs
-    model_with_cost = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.01,  # 1% per trade
-        warm_start=False,
+    model.partial_fit([0.1, -0.1])
+    candidate = np.array([0.2, 0.8])
+    model._transaction_costs_arr = 0.1
+    adjusted = model._apply_transaction_cost_regularization(
+        candidate, model.weights_, anchor
     )
-    model_with_cost.fit(X_small)
-
-    # Compute turnover (L1 distance between consecutive weights)
-    turnover_no_cost = np.sum(np.abs(np.diff(model_no_cost.all_weights_, axis=0)))
-    turnover_with_cost = np.sum(np.abs(np.diff(model_with_cost.all_weights_, axis=0)))
-
-    # Transaction costs should reduce turnover
-    assert turnover_with_cost < turnover_no_cost, (
-        f"Transaction costs should reduce turnover for {strategy}/{update_mode}. "
-        f"Got {turnover_with_cost:.4f} >= {turnover_no_cost:.4f}"
-    )
+    assert np.abs(adjusted - anchor).sum() < np.abs(candidate - anchor).sum()
 
 
 @pytest.mark.parametrize("strategy", ["olmar", "pamr"])
 @pytest.mark.parametrize("update_mode", ["pa"])
 def test_higher_costs_reduce_turnover_more(X_small, strategy, update_mode):
-    """Higher transaction costs should reduce turnover more."""
-    np.random.seed(42)
-
-    # Low cost
-    model_low = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.001,
-        warm_start=False,
+    anchor = np.array([0.8, 0.2])
+    model = FollowTheLoser(
+        strategy=strategy, update_mode=update_mode, previous_weights=anchor
     )
-    model_low.fit(X_small)
-
-    # High cost
-    model_high = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.01,
-        warm_start=False,
+    model.partial_fit([0.1, -0.1])
+    candidate = np.array([0.2, 0.8])
+    model._transaction_costs_arr = 0.01
+    low = model._apply_transaction_cost_regularization(
+        candidate, model.weights_, anchor
     )
-    model_high.fit(X_small)
-
-    turnover_low = np.sum(np.abs(np.diff(model_low.all_weights_, axis=0)))
-    turnover_high = np.sum(np.abs(np.diff(model_high.all_weights_, axis=0)))
-
-    assert turnover_high <= turnover_low, (
-        f"Higher costs should reduce turnover more for {strategy}/{update_mode}. "
-        f"Got low={turnover_low:.4f}, high={turnover_high:.4f}"
+    model._transaction_costs_arr = 0.1
+    high = model._apply_transaction_cost_regularization(
+        candidate, model.weights_, anchor
     )
+    assert np.abs(high - anchor).sum() <= np.abs(low - anchor).sum()
 
 
 """Test management fees application."""
@@ -145,61 +114,24 @@ def test_apply_fees_to_phi(X_small, strategy):
 @pytest.mark.parametrize("strategy", ["olmar"])
 @pytest.mark.parametrize("update_mode", ["pa"])
 def test_combined_effects(X_small, strategy, update_mode):
-    """Both costs and fees should affect portfolio behavior."""
-    np.random.seed(42)
+    from skfolio.model_selection import online_predict
 
-    # Baseline
-    model_none = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.0,
-        management_fees=0.0,
-        warm_start=False,
-    )
-    model_none.fit(X_small)
-
-    # Only transaction costs
-    model_tc = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.005,
-        management_fees=0.0,
-        warm_start=False,
-    )
-    model_tc.fit(X_small)
-
-    # Only management fees
-    model_mf = FollowTheLoser(
-        strategy=strategy,
-        update_mode=update_mode,
-        transaction_costs=0.0,
-        management_fees=0.001,
-        warm_start=False,
-    )
-    model_mf.fit(X_small)
-
-    # Both
-    model_both = FollowTheLoser(
+    model = FollowTheLoser(
         strategy=strategy,
         update_mode=update_mode,
         transaction_costs=0.005,
         management_fees=0.001,
-        warm_start=False,
+        portfolio_params={"weight_drift": True},
     )
-    model_both.fit(X_small)
-
-    # Compute turnovers
-    turnover_none = np.sum(np.abs(np.diff(model_none.all_weights_, axis=0)))
-    turnover_tc = np.sum(np.abs(np.diff(model_tc.all_weights_, axis=0)))
-    turnover_both = np.sum(np.abs(np.diff(model_both.all_weights_, axis=0)))
-
-    # Transaction costs should reduce turnover in PA mode
-    assert turnover_tc < turnover_none, (
-        f"Transaction costs alone should reduce turnover for {strategy}/{update_mode}"
-    )
-    assert turnover_both <= turnover_none or abs(turnover_both - turnover_none) < 0.5, (
-        f"Combined costs/fees should not increase turnover significantly for {strategy}/{update_mode}"
-    )
+    path = online_predict(model, X_small, warmup_size=3, test_size=1)
+    for p in path:
+        raw = np.asarray(p.X)[0]
+        expected = (
+            p.weights @ raw
+            - 0.005 * np.abs(p.weights - p.previous_weights).sum()
+            - 0.001 * p.weights.sum()
+        )
+        np.testing.assert_allclose(p.returns, [expected])
 
 
 @pytest.mark.parametrize("strategy", ["olmar", "pamr"])

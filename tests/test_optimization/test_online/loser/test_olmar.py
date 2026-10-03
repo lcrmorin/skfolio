@@ -65,20 +65,21 @@ def test_pa_step_equals_closed_form_projection():
 
 
 def test_turnover_constraint_enforced():
-    model = FollowTheLoser(
-        strategy="olmar",
-        olmar_predictor="ewma",
-        olmar_alpha=0.6,
-        epsilon=1.02,
-        update_mode="pa",
-        max_turnover=0.10,
+    from skfolio.model_selection import online_predict
+    from skfolio.optimization.online import FollowTheWinner, FollowTheLoser
+
+    X = np.array([[0.2, -0.2, 0], [-0.2, 0.2, 0]] * 8)
+    model = FollowTheLoser(strategy="olmar", olmar_window=2)
+    model.set_params(
+        previous_weights=np.ones(3) / 3,
+        max_turnover=0.1,
+        portfolio_params={"weight_drift": True},
     )
-    rng = np.random.default_rng(0)
-    X = rng.normal(0, 0.01, size=(50, 5))
-    model.fit(X)
-    W = model.all_weights_
-    turnover = np.sum(np.abs(W[1:] - W[:-1]), axis=1)
-    assert np.all(turnover <= 0.10 + 1e-8)
+    path = online_predict(model, X, warmup_size=3, test_size=1)
+    for portfolio in path:
+        assert (
+            np.abs(portfolio.weights - portfolio.previous_weights).sum() <= 0.1 + 1e-7
+        )
 
 
 def test_trading_vs_postupdate_weights_semantics():

@@ -238,7 +238,7 @@ def test_autograd_objective_against_reference(net_returns, measure):
         Measure to test.
     """
     autograd_func, ref_func, special_rtol = AUTOGRAD_MEASURE_MAPPING[measure]
-    assert ref_func(net_returns).shape == autograd_func(net_returns).shape, (
+    assert np.shape(ref_func(net_returns)) == np.shape(autograd_func(net_returns)), (
         f"Shapes mismatch for metric {measure}"
     )
     # Use relaxed tolerance for measures with approximations (EVaR, EDaR)

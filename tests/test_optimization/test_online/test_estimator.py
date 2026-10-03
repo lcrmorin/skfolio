@@ -154,32 +154,21 @@ def test_objective_not_implemented_raises_value_error():
 
 
 def test_turnover_cap_enforced_each_round():
-    # The turnover cap is defined on the change between consecutive traded portfolios.
-    # An alternating market forces the target direction to flip every round; if the
-    # projector keeps using a stale anchor, consecutive changes can exceed the cap.
-    X = np.array(
-        [
-            [0.20, -0.20, 0.00],
-            [-0.20, 0.20, 0.00],
-            [0.20, -0.20, 0.00],
-            [-0.20, 0.20, 0.00],
-            [0.20, -0.20, 0.00],
-        ],
-        dtype=float,
+    from skfolio.model_selection import online_predict
+    from skfolio.optimization.online import FollowTheWinner, FollowTheLoser
+
+    X = np.array([[0.2, -0.2, 0], [-0.2, 0.2, 0]] * 8)
+    model = FollowTheWinner(learning_rate=5.0, update_mode="omd")
+    model.set_params(
+        previous_weights=np.ones(3) / 3,
+        max_turnover=0.1,
+        portfolio_params={"weight_drift": True},
     )
-    prev = np.array([1 / 3] * 3)
-    est = FollowTheWinner(
-        strategy=FTWStrategy.EG,
-        update_mode="omd",
-        learning_rate=5.0,
-        warm_start=False,
-        previous_weights=prev,
-        max_turnover=0.10,  # cap L1 change per round
-    )
-    est.fit(X)
-    W = est.all_weights_
-    l1_changes = np.sum(np.abs(W[1:] - W[:-1]), axis=1)
-    assert np.all(l1_changes <= 0.10 + 1e-9)
+    path = online_predict(model, X, warmup_size=3, test_size=1)
+    for portfolio in path:
+        assert (
+            np.abs(portfolio.weights - portfolio.previous_weights).sum() <= 0.1 + 1e-7
+        )
 
 
 def test_weights_respect_min_max_and_budget_constraints():
