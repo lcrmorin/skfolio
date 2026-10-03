@@ -28,7 +28,11 @@ from skfolio._constants import (
 )
 from skfolio.measures import RiskMeasure, owa_gmd_weights
 from skfolio.optimization._base import BaseOptimization
-from skfolio.optimization._constraints import budget_constraints, weight_constraints
+from skfolio.optimization._constraints import (
+    budget_constraints,
+    linear_constraints,
+    weight_constraints,
+)
 from skfolio.prior import BasePrior, ReturnDistribution
 from skfolio.typing import AnyArray, ArrayLike, BoolArray, FloatArray, StrArray
 from skfolio.uncertainty_set import (
@@ -37,7 +41,7 @@ from skfolio.uncertainty_set import (
     CompactCovarianceUncertaintySet,
     UncertaintySet,
 )
-from skfolio.utils.equations import equations_to_matrix, group_cardinalities_to_matrix
+from skfolio.utils.equations import group_cardinalities_to_matrix
 from skfolio.utils.tools import (
     AutoEnum,
     _get_liquidation_turnover_and_cost,
@@ -1011,57 +1015,16 @@ class ConvexOptimization(BaseOptimization, ABC):
         Supplied groups must already be aligned with the investable assets.
         Factor constraints use the factor model from `return_distribution`.
         """
-        constraints = []
-        if self.linear_constraints is not None:
-            if groups is None:
-                if assets_names is None:
-                    raise ValueError(
-                        "If `linear_constraints` is provided you must provide either"
-                        " `groups` or `X` as a DataFrame with asset names in columns"
-                    )
-                if investable_mask is None:
-                    groups = np.asarray([assets_names])
-                else:
-                    groups = np.asarray([assets_names[investable_mask]])
-
-            # Extract factor info from return_distribution for factor constraints
-            loading_matrix = None
-            factor_groups = None
-            if return_distribution is not None:
-                factor_model = return_distribution.factor_model
-                if factor_model is not None:
-                    loading_matrix = factor_model.loading_matrix
-                    if factor_model.factor_families is not None:
-                        factor_groups = np.array(
-                            [
-                                factor_model.factor_names,
-                                factor_model.factor_families,
-                            ]
-                        )
-                    else:
-                        factor_groups = np.array([factor_model.factor_names])
-
-            a_eq, b_eq, a_ineq, b_ineq = equations_to_matrix(
-                groups=groups,
-                equations=self.linear_constraints,
-                raise_if_group_missing=False,
-                loading_matrix=loading_matrix,
-                factor_groups=factor_groups,
-            )
-            if len(a_eq) != 0:
-                constraints.append(
-                    a_eq @ w * self._scale_constraints
-                    - b_eq * factor * self._scale_constraints
-                    == 0
-                )
-            if len(a_ineq) != 0:
-                constraints.append(
-                    a_ineq @ w * self._scale_constraints
-                    - b_ineq * factor * self._scale_constraints
-                    <= 0
-                )
-
-        return constraints
+        return linear_constraints(
+            w,
+            factor,
+            self.linear_constraints,
+            groups,
+            assets_names,
+            investable_mask,
+            return_distribution,
+            self._scale_constraints,
+        )
 
     def _matrix_inequality_constraints(
         self,

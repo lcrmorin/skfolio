@@ -13,7 +13,7 @@ from numpy.typing import ArrayLike
 
 import skfolio.typing as skt
 from skfolio.optimization._constraints import budget_constraints, weight_constraints
-from skfolio.utils.equations import equations_to_matrix
+from skfolio.optimization._constraints import linear_constraints as named_constraints
 from skfolio.utils.tools import input_to_array
 
 
@@ -63,11 +63,14 @@ class ProjectionConfig:
 
 
 class BaseProjector:
+    """Interface for projecting numerical proposals onto feasible portfolios."""
+
     def project_geometry(self, y: np.ndarray, geometry: str) -> np.ndarray:
         """Project in the requested geometry; legacy custom projectors choose their own."""
         return self.project(y)
 
     def project(self, y: np.ndarray) -> np.ndarray:
+        """Return a feasible projection of the proposed weights."""
         raise NotImplementedError
 
 
@@ -75,16 +78,18 @@ class IdentityProjector(BaseProjector):
     """Projector that returns the input unchanged. Useful to test pure mirror updates."""
 
     def project(self, y: np.ndarray) -> np.ndarray:
+        """Return a feasible projection of the proposed weights."""
         return np.asarray(y, dtype=float)
 
 
 class FastProjector(BaseProjector):
     """Fast projector using box+sum and optional L1 turnover cap."""
 
-    def __init__(self, config: ProjectionConfig):
+    def __init__(self, config: ProjectionConfig) -> None:
         self.config = config
 
     def project(self, y: np.ndarray) -> np.ndarray:
+        """Return a feasible projection of the proposed weights."""
         if self.config.previous_weights is None or self.config.max_turnover is None:
             return project_box_and_sum(
                 y=y,
@@ -105,10 +110,11 @@ class FastProjector(BaseProjector):
 class ConvexProjector(BaseProjector):
     """Convex projector using cvxpy with rich constraints (see ProjectionConfig)."""
 
-    def __init__(self, config: ProjectionConfig):
+    def __init__(self, config: ProjectionConfig) -> None:
         self.config = config
 
     def project(self, y: np.ndarray) -> np.ndarray:
+        """Return a feasible projection of the proposed weights."""
         return project_convex(
             w_raw=y,
             budget=self.config.budget,
@@ -140,7 +146,7 @@ class AutoProjector(BaseProjector):
     Convex projector is used when rich constraints are provided.
     """
 
-    def __init__(self, config: ProjectionConfig):
+    def __init__(self, config: ProjectionConfig) -> None:
         self.config = config
         self._fast = FastProjector(config)
         self._cvx = ConvexProjector(config)
@@ -163,17 +169,14 @@ class AutoProjector(BaseProjector):
         )
 
     def _needs_cvx(self) -> bool:
+        """Identify constraints requiring a convex solver."""
         return any(
             v is not None
             for v in [
-                self.config.groups,
                 self.config.linear_constraints,
                 self.config.left_inequality,
                 self.config.right_inequality,
-                self.config.X_tracking,
-                self.config.tracking_error_benchmark,
                 self.config.max_tracking_error,
-                self.config.covariance,
                 self.config.variance_bound,
                 self.config.min_budget,
                 self.config.max_budget,
@@ -183,6 +186,7 @@ class AutoProjector(BaseProjector):
         )
 
     def project(self, y: np.ndarray) -> np.ndarray:
+        """Return a feasible projection of the proposed weights."""
         if self.config.budget is None or self._needs_cvx():
             return self._cvx.project(y)
         return self._fast.project(y)
@@ -240,6 +244,8 @@ def project_box_and_sum(
     else:
         up_arr = input_to_array(upper, n, 1.0, 1, None, "upper_bounds")
 
+    if np.any(lo_arr > up_arr):
+        raise ValueError("Lower weight bounds exceed upper weight bounds")
     low_sum = float(np.sum(lo_arr))
     up_sum = float(np.sum(up_arr))
     b = float(budget)
@@ -404,20 +410,9 @@ def project_convex(
     constraints = weight_constraints(w, 1.0, lower_bounds, u, True, max_long, max_short)
     constraints += budget_constraints(w, 1.0, budget, min_budget, max_budget)
 
-    if linear_constraints is not None and len(linear_constraints) > 0:
-        if groups is None:
-            raise ValueError(
-                "groups must be provided (as matrix) to parse linear_constraints."
-            )
-        a_eq, b_eq, a_ineq, b_ineq = equations_to_matrix(
-            groups=groups,
-            equations=linear_constraints,
-            raise_if_group_missing=False,
-        )
-        if len(a_eq) != 0:
-            constraints.append(a_eq @ w - b_eq == 0)
-        if len(a_ineq) != 0:
-            constraints.append(a_ineq @ w - b_ineq <= 0)
+    constraints += named_constraints(
+        w, 1.0, linear_constraints, None if groups is None else np.asarray(groups)
+    )
 
     if left_inequality is not None and right_inequality is not None:
         A = np.asarray(left_inequality)
