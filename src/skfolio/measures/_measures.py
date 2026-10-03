@@ -17,9 +17,7 @@ from skfolio.typing import ArrayLike, FloatArray
 from skfolio.utils.stats import safe_divide
 
 
-def log_wealth(
-    returns: npt.ArrayLike, sample_weight: np.ndarray | None = None
-) -> float:
+def log_wealth(returns: ArrayLike, sample_weight: FloatArray | None = None) -> float:
     """Compute the log-wealth (cumulative log return).
 
     The log-wealth represents the logarithm of the final wealth and is computed as
@@ -39,8 +37,18 @@ def log_wealth(
     -------
     value : float
         The log-wealth.
+
+    Notes
+    -----
+    Missing returns are excluded, consistently with portfolio summaries that
+    retain failed periods as NaN. The result is NaN when no observed returns
+    remain. Sample weights do not change cumulative realized wealth.
     """
-    return np.sum(np.log1p(returns))
+    returns = np.asarray(returns, dtype=float)
+    observed = returns[~np.isnan(returns)]
+    if observed.size == 0:
+        return float("nan")
+    return float(np.sum(np.log1p(observed)))
 
 
 def mean(

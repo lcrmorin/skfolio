@@ -1343,3 +1343,14 @@ def test_correlation(returns, sample_weight, expected):
     np.testing.assert_almost_equal(
         skm.correlation(returns, sample_weight=sample_weight), expected
     )
+
+
+@pytest.mark.parametrize("sample_weight", [None, np.array([0.2, 0.3, 0.5])])
+def test_log_wealth_excludes_missing_periods(sample_weight):
+    returns = np.array([0.1, np.nan, -0.05])
+    assert np.isclose(
+        skm.log_wealth(returns, sample_weight=sample_weight), np.log(1.1 * 0.95)
+    )
+    assert np.isnan(skm.log_wealth(np.array([np.nan])))
+    assert np.isnan(skm.log_wealth(np.array([])))
+    assert np.isneginf(skm.log_wealth(np.array([-1.0])))
