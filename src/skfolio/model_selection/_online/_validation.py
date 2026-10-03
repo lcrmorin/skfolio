@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import datetime as dt
 import numbers
 from collections.abc import Generator
@@ -597,18 +598,23 @@ def _online_walk_forward(
             f"purged_size={purged_size}."
         )
 
+    if getattr(estimator, "_requires_single_period_evaluation", False) and purged_size:
+        raise ValueError("Online portfolio selection does not support purged execution gaps")
+
     # WalkForward with expand_train=True produces contiguous index arrays,
     # so converting first/last to a slice is safe and avoids a copy.
     initial_train = splits[0][0]
     warmup_slice = slice(int(initial_train[0]), int(initial_train[-1]) + 1)
-    fit_single_estimator(
-        estimator,
-        X,
-        y,
-        fit_params=routed_params.estimator_params,
-        indices=warmup_slice,
-        method="partial_fit",
-    )
+    warmup_context = getattr(estimator, "_warmup_context", nullcontext)
+    with warmup_context():
+        fit_single_estimator(
+            estimator,
+            X,
+            y,
+            fit_params=routed_params.estimator_params,
+            indices=warmup_slice,
+            method="partial_fit",
+        )
 
     last_train_end = warmup_slice.stop
     last_test_slice = None

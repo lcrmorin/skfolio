@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import warnings
+from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any
@@ -115,7 +116,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             covariance=self.covariance,
             variance_bound=self.variance_bound,
             previous_weights=self._execution_anchor,
-            max_turnover=self.max_turnover,
+            max_turnover=self._decision_turnover,
         )
         return AutoProjector(projection_config)
 
@@ -326,6 +327,8 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         covers the complete block before any numerical update. Legacy trajectory
         and wealth attributes are retained during the execution-layer migration.
         """
+        if getattr(self, "_needs_reset", False):
+            raise RuntimeError("A previous update failed; call fit to reset before reuse")
         self._validate_params()
         if fit_params:
             raise TypeError(f"Unsupported fit parameters: {sorted(fit_params)}")
@@ -348,42 +351,55 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                 UserWarning,
                 stacklevel=2,
             )
-        trade_list = []
-        wealth_list = []
-        initial_wealth = None
-        for row in net_to_relatives(returns):
-            self._execution_anchor = (
-                None if self.previous_weights is None
-                else self._clean_previous_weights(returns.shape[1]).copy()
+        warmup = getattr(self, "_in_warmup", False)
+        if len(returns) > 1 and self.max_turnover is not None and not warmup:
+            raise ValueError(
+                "Execution-constrained blocks require row-aligned holdings; "
+                "use fit for warmup or one-row partial_fit for each rebalance"
             )
-            if self._execution_anchor is not None:
-                if not np.isfinite(self._execution_anchor).all():
-                    raise ValueError("previous_weights must contain finite holdings")
-                self._execution_anchor.setflags(write=False)
-            if self.max_turnover is not None and self._execution_anchor is None:
-                raise ValueError("max_turnover requires explicit previous_weights holdings")
-            self._update_one(row)
-            if not hasattr(self, "initial_weights_"):
-                self.initial_weights_ = self._last_trade_weights_.copy()
-                initial_wealth = (
-                    1.0
-                    if self.initial_wealth is None
-                    else float(np.sum(self.initial_wealth))
+        trade_list = []
+        try:
+            for i, row in enumerate(net_to_relatives(returns)):
+                decision = not warmup or i == len(returns) - 1
+                self._decision_turnover = self.max_turnover if decision else None
+                self._execution_anchor = (
+                    None if not decision or self.previous_weights is None
+                    else self._clean_previous_weights(returns.shape[1]).copy()
                 )
-            self.n_observations_ = self._t
-            trade_list.append(self._last_trade_weights_.copy())
-            wealth_list.append(self.wealth_)
-        history = np.asarray(trade_list)
-        self.all_weights_ = (
-            np.vstack((self.all_weights_, history))
-            if hasattr(self, "all_weights_")
-            else history
-        )
-        prior_wealth = (
-            self.all_wealth_ if hasattr(self, "all_wealth_") else [initial_wealth]
-        )
-        self.all_wealth_ = np.concatenate((prior_wealth, wealth_list))
+                if self._execution_anchor is not None:
+                    if not np.isfinite(self._execution_anchor).all():
+                        raise ValueError("previous_weights must contain finite holdings")
+                    self._execution_anchor.setflags(write=False)
+                if self._decision_turnover is not None and self._execution_anchor is None:
+                    raise ValueError("max_turnover requires explicit previous_weights holdings")
+                self._update_one(row)
+                if not hasattr(self, "initial_weights_"):
+                    self.initial_weights_ = self._last_trade_weights_.copy()
+                self.n_observations_ = self._t
+                trade_list.append(self._last_trade_weights_.copy())
+        except Exception:
+            # Engines/predictors may already have consumed the failing observation.
+            # Do not pretend that keeping the previous public target rolls them back.
+            self._needs_reset = True
+            raise
+        finally:
+            if trade_list:
+                history = np.asarray(trade_list)
+                self.all_weights_ = (
+                    np.vstack((self.all_weights_, history))
+                    if hasattr(self, "all_weights_") else history
+                )
         return self
+
+    @contextmanager
+    def _warmup_context(self):
+        """Mark historical rows as learning-only until the final entry decision."""
+        old = getattr(self, "_in_warmup", False)
+        self._in_warmup = True
+        try:
+            yield
+        finally:
+            self._in_warmup = old
 
     def _update_one(self, gross_relatives: np.ndarray) -> None:
         """Observe one return vector using the existing strategy machinery."""
@@ -394,6 +410,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         for name in list(vars(self)):
             if name.endswith("_") and not name.startswith("__"):
                 delattr(self, name)
+        self._needs_reset = False
         self._weights_initialized = False
         self._wealth_initialized = False
         self._is_initialized = False
@@ -417,7 +434,8 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         longer controls this method. Use ``partial_fit`` to continue a stream.
         """
         self._reset_state_for_fit()
-        return self.partial_fit(X, y, **fit_params)
+        with self._warmup_context():
+            return self.partial_fit(X, y, **fit_params)
 
     def _clean_input(
         self,

@@ -58,3 +58,27 @@ def test_mixed_eg_target_is_next_engine_reference():
                             eg_tilde=True, eg_tilde_alpha=.3)
     model.partial_fit([.2, -.1])
     assert_allclose(model.weights_, model._foco_engine._x_t)
+
+
+@pytest.mark.parametrize("kind", ["winner", "loser"])
+def test_warmup_only_final_target_uses_entry_holdings(kind):
+    model = (FollowTheWinner(learning_rate=.5, update_mode="omd")
+             if kind == "winner" else FollowTheLoser(strategy="pamr", epsilon=.5))
+    model.set_params(max_turnover=0, previous_weights=[.8, .2])
+    model.fit(np.array([[.2, -.1], [-.1, .3], [.1, -.1]]))
+    assert_allclose(model.initial_weights_, [.5, .5])
+    assert not np.allclose(model.all_weights_[1], [.8, .2])
+    assert_allclose(model.weights_, [.8, .2], atol=1e-7)
+    assert model.n_observations_ == 3
+    with pytest.raises(ValueError, match="row-aligned"):
+        model.partial_fit([[.1, -.1], [-.1, .1]])
+
+
+def test_failure_requires_reset_before_continuing():
+    model = FollowTheWinner(max_turnover=0, previous_weights=[.9, .1], max_weights=.6)
+    with pytest.raises(ValueError, match="Infeasible"):
+        model.partial_fit([.1, -.1])
+    with pytest.raises(RuntimeError, match="reset"):
+        model.partial_fit([0., 0.])
+    model.set_params(previous_weights=[.5, .5]).fit([[0., 0.]])
+    assert_allclose(model.weights_, [.5, .5])
