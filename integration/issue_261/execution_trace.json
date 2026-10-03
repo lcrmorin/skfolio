@@ -1,109 +1,34 @@
 {
-  "winner_external_anchor": {
-    "supplied": [
-      0.9,
-      0.1
+  "winner": {
+    "first_external_anchor_target": [
+      0.8,
+      0.2
     ],
-    "cached_before": [
-      0.5714285714285714,
-      0.42857142857142855
+    "refreshed_external_anchor_target": [
+      0.2,
+      0.8
     ],
-    "old_target": [
-      0.514281828285414,
-      0.485718171714586
-    ],
-    "projection_anchors": [
-      [
-        0.514281828285414,
-        0.485718171714586
-      ]
-    ],
-    "cached_after": [
-      0.44261911286342853,
-      0.5573808871365714
-    ]
+    "optimizer_books_wealth": false
   },
-  "loser_external_anchor": {
-    "supplied": [
-      0.9,
-      0.1
+  "loser": {
+    "first_external_anchor_target": [
+      0.8,
+      0.2
     ],
-    "old_target": [
-      0.45,
-      0.55
+    "refreshed_external_anchor_target": [
+      0.2,
+      0.8
     ],
-    "projection_anchors": [
-      [
-        0.45,
-        0.55
-      ]
-    ]
+    "optimizer_books_wealth": false
   },
-  "winner_loss_timing": {
-    "reported": -0.08776160042142635,
-    "loss_of_pre_observation_target": -0.04879016416943205,
-    "loss_of_next_target": -0.08776160042142635
-  },
-  "management_fee_conventions": {
-    "internal_return": 0.03949999999999987,
-    "portfolio_return": 0.04000000000000004
-  },
-  "online_predict_warmup_and_first_update": {
-    "updates": [
-      {
-        "observation": 0,
-        "public_previous": null,
-        "internal_previous": null,
-        "target_used": [
-          0.5,
-          0.5
-        ],
-        "internal_wealth": 1.05
-      },
-      {
-        "observation": 1,
-        "public_previous": null,
-        "internal_previous": [
-          0.5714285714285714,
-          0.42857142857142855
-        ],
-        "target_used": [
-          0.514281828285414,
-          0.48571817171458603
-        ],
-        "internal_wealth": 1.0980012240900947
-      },
-      {
-        "observation": 2,
-        "public_previous": [
-          0.5475610458574268,
-          0.45243895414257346
-        ],
-        "internal_previous": [
-          0.44261911286342853,
-          0.5573808871365715
-        ],
-        "target_used": [
-          0.4999414679823841,
-          0.5000585320176161
-        ],
-        "internal_wealth": 1.1528884316492014
-      }
-    ],
-    "evaluated_periods": 2,
-    "first_portfolio_ending": [
-      0.5475610458574268,
-      0.45243895414257346
-    ]
-  },
-  "portfolio_drift_switch": {
-    "enabled": [
-      0.5714285714285714,
-      0.42857142857142855
-    ],
-    "disabled": [
-      0.5,
-      0.5
+  "pre_observation_loss": -0.04879016416943205,
+  "first_period_net_return": 0.038,
+  "entry_override": {
+    "warmup_rows": 2,
+    "evaluated_periods": 3,
+    "later_turnover": [
+      0.0,
+      0.0
     ]
   }
 }
