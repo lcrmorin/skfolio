@@ -63,6 +63,14 @@ From this worktree, with the existing project environment::
     print(prediction.returns)
     PY
 
+Execution mapping
+-----------------
+
+See EXECUTION_MAPPING.rst for the field-by-field ownership map, current call
+sequences, confirmed discrepancies and proposed warmup/block contract.
+trace_execution.py reproduces the diagnostic evidence in execution_trace.json.
+These files describe the next migration; they do not change runtime behaviour.
+
 Remaining integration boundaries
 --------------------------------
 
