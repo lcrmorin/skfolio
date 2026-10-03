@@ -11,7 +11,11 @@ from typing import Literal
 
 import numpy as np
 
-from skfolio.optimization.online._mirror_maps import BaseMirrorMap, DynamicMirrorMap
+from skfolio.optimization.online._mirror_maps import (
+    BaseMirrorMap,
+    DynamicMirrorMap,
+    EntropyMirrorMap,
+)
 from skfolio.optimization.online._projection import BaseProjector
 
 Predictor = Callable[[int, np.ndarray | None, np.ndarray | None], np.ndarray]
@@ -133,7 +137,9 @@ class FirstOrderOCO:
             z = -eta_grad_term + self.map.grad_psi(reg_center)
         x = self.map.grad_psi_star(z)
         x = self.map.project_geom(x)
-        x = self.projector.project(x)
+        x = self.projector.project_geometry(
+            x, "entropy" if isinstance(self.map, EntropyMirrorMap) else "euclidean"
+        )
         return x
 
     def step(self, g: np.ndarray) -> np.ndarray:
@@ -186,7 +192,10 @@ class FirstOrderOCO:
             # Use specialized constrained_inverse method for Burg update
             x_next, _ = self.map.constrained_inverse(self._x_t, eta_t, effective_grad)
             # Apply external projector for additional constraints
-            x_next = self.projector.project(x_next)
+            x_next = self.projector.project_geometry(
+                x_next,
+                "entropy" if isinstance(self.map, EntropyMirrorMap) else "euclidean",
+            )
         elif self.mode == "omd":
             # Compute effective gradient: g_t - tilde{g}_t + tilde{g}_{t+1}
             # where tilde{g}_t is the prediction made at round t-1 (stored in _prev_prediction)
@@ -206,7 +215,12 @@ class FirstOrderOCO:
                     z, g
                 )  # aggregated inverse (H_{t+1})
                 x_next = self.map.project_geom(x_next)
-                x_next = self.projector.project(x_next)
+                x_next = self.projector.project_geometry(
+                    x_next,
+                    "entropy"
+                    if isinstance(self.map, EntropyMirrorMap)
+                    else "euclidean",
+                )
             else:
                 x_next = self._composite_update(eta_grad_term=lin, reg_center=self._x_t)
 

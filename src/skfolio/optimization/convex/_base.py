@@ -28,6 +28,7 @@ from skfolio._constants import (
 )
 from skfolio.measures import RiskMeasure, owa_gmd_weights
 from skfolio.optimization._base import BaseOptimization
+from skfolio.optimization._constraints import budget_constraints, weight_constraints
 from skfolio.prior import BasePrior, ReturnDistribution
 from skfolio.typing import AnyArray, ArrayLike, BoolArray, FloatArray, StrArray
 from skfolio.uncertainty_set import (
@@ -893,76 +894,30 @@ class ConvexOptimization(BaseOptimization, ABC):
 
         Weight bounds must already be aligned with the investable assets.
         """
-        constraints = []
-        if min_weights is not None:
-            if not allow_negative_weights and np.any(min_weights < 0):
-                raise ValueError(
-                    f"{self.__class__.__name__} must have non negative `min_weights` "
-                    f"constraint otherwise the problem becomes non-convex."
-                )
-            constraints.append(
-                w * self._scale_constraints
-                >= min_weights * factor * self._scale_constraints
-            )
-
-        if max_weights is not None:
-            constraints.append(
-                w * self._scale_constraints
-                <= max_weights * factor * self._scale_constraints
-            )
-
-        if self.max_long is not None:
-            max_long = float(self.max_long)
-            if max_long <= 0:
-                raise ValueError("`max_long` must be strictly positive")
-            constraints.append(
-                cp.sum(cp.pos(w)) * self._scale_constraints
-                <= max_long * factor * self._scale_constraints
-            )
-
-        if self.max_short is not None:
-            max_short = float(self.max_short)
-            if max_short <= 0:
-                raise ValueError("`max_short` must be strictly positive")
-            constraints.append(
-                cp.sum(cp.neg(w)) * self._scale_constraints
-                <= max_short * factor * self._scale_constraints
-            )
-
-        return constraints
+        return weight_constraints(
+            w,
+            factor,
+            min_weights,
+            max_weights,
+            allow_negative_weights,
+            self.max_long,
+            self.max_short,
+            self._scale_constraints,
+            self.__class__.__name__,
+        )
 
     def _budget_constraints(
         self, w: cp.Variable, factor: skt.Factor
     ) -> list[cpc.Constraint]:
         """Constrain the sum of weights using the configured budget or limits."""
-        constraints = []
-        if self.min_budget is not None:
-            constraints.append(
-                cp.sum(w) * self._scale_constraints
-                >= float(self.min_budget) * factor * self._scale_constraints
-            )
-
-        if self.max_budget is not None:
-            constraints.append(
-                cp.sum(w) * self._scale_constraints
-                <= float(self.max_budget) * factor * self._scale_constraints
-            )
-
-        if self.budget is not None:
-            if self.max_budget is not None:
-                raise ValueError(
-                    "`max_budget`and `budget` cannot be provided at the same time"
-                )
-            if self.min_budget is not None:
-                raise ValueError(
-                    "`min_budget`and `budget` cannot be provided at the same time"
-                )
-            constraints.append(
-                cp.sum(w) * self._scale_constraints
-                == float(self.budget) * factor * self._scale_constraints
-            )
-
-        return constraints
+        return budget_constraints(
+            w,
+            factor,
+            self.budget,
+            self.min_budget,
+            self.max_budget,
+            self._scale_constraints,
+        )
 
     def _mixed_integer_constraints(
         self,

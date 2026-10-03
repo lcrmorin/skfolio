@@ -5,13 +5,14 @@
 # SPDX-License-Identifier: BSD-3-Clause
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 import cvxpy as cp
 import numpy as np
 from numpy.typing import ArrayLike
 
 import skfolio.typing as skt
+from skfolio.optimization._constraints import budget_constraints, weight_constraints
 from skfolio.utils.equations import equations_to_matrix
 from skfolio.utils.tools import input_to_array
 
@@ -62,6 +63,10 @@ class ProjectionConfig:
 
 
 class BaseProjector:
+    def project_geometry(self, y: np.ndarray, geometry: str) -> np.ndarray:
+        """Project in the requested geometry; legacy custom projectors choose their own."""
+        return self.project(y)
+
     def project(self, y: np.ndarray) -> np.ndarray:
         raise NotImplementedError
 
@@ -140,6 +145,23 @@ class AutoProjector(BaseProjector):
         self._fast = FastProjector(config)
         self._cvx = ConvexProjector(config)
 
+    def project_geometry(self, y: np.ndarray, geometry: str) -> np.ndarray:
+        """Preserve entropy geometry when projecting onto additional constraints."""
+        if geometry != "entropy":
+            return self.project(y)
+        if not self._needs_cvx() and self.config.max_turnover is None:
+            return project_entropy_box(
+                y, self.config.lower, self.config.upper, self.config.budget
+            )
+        return project_convex(
+            w_raw=y,
+            geometry="entropy",
+            **{
+                ("X" if key == "X_tracking" else key): value
+                for key, value in vars(self.config).items()
+            },
+        )
+
     def _needs_cvx(self) -> bool:
         return any(
             v is not None
@@ -161,7 +183,7 @@ class AutoProjector(BaseProjector):
         )
 
     def project(self, y: np.ndarray) -> np.ndarray:
-        if self._needs_cvx():
+        if self.config.budget is None or self._needs_cvx():
             return self._cvx.project(y)
         return self._fast.project(y)
 
@@ -222,7 +244,7 @@ def project_box_and_sum(
     up_sum = float(np.sum(up_arr))
     b = float(budget)
     if b < low_sum - 1e-15 or b > up_sum + 1e-15:
-        b = min(max(b, low_sum), up_sum)
+        raise ValueError("Infeasible box bounds and budget")
 
     lo = float(np.min(y_arr - up_arr)) - 1.0
     hi = float(np.max(y_arr - lo_arr)) + 1.0
@@ -343,6 +365,7 @@ def project_convex(
     previous_weights: ArrayLike | None = None,
     max_turnover: float | None = None,
     solver_params: dict[str, Any] | None = None,
+    geometry: Literal["euclidean", "entropy"] = "euclidean",
 ) -> np.ndarray:
     r"""
     Convex projection with advanced constraints using cvxpy.
@@ -374,25 +397,12 @@ def project_convex(
     # poor solver residuals without changing the minimizer.
     scale = max(1.0, float(np.max(np.abs(w0))))
     objective = cp.Minimize((0.5 * cp.sum_squares(w) - w0 @ w) / scale)
-    constraints: list[Any] = [w >= lower_bounds, w <= u]
-
-    if min_budget is not None:
-        constraints.append(cp.sum(w) >= float(min_budget))
-    if max_budget is not None:
-        constraints.append(cp.sum(w) <= float(max_budget))
-    if budget is not None:
-        if min_budget is not None or max_budget is not None:
-            raise ValueError("Cannot use budget with min_budget/max_budget.")
-        constraints.append(cp.sum(w) == float(budget))
-
-    if max_long is not None:
-        if max_long <= 0:
-            raise ValueError("max_long must be > 0")
-        constraints.append(cp.sum(cp.pos(w)) <= float(max_long))
-    if max_short is not None:
-        if max_short <= 0:
-            raise ValueError("max_short must be > 0")
-        constraints.append(cp.sum(cp.neg(w)) >= -float(max_short))
+    if geometry == "entropy":
+        if np.any(w0 < 0) or np.any(lower_bounds < 0):
+            raise ValueError("Entropy projection requires nonnegative weights")
+        objective = cp.Minimize(cp.sum(cp.kl_div(w, np.maximum(w0, 1e-300))))
+    constraints = weight_constraints(w, 1.0, lower_bounds, u, True, max_long, max_short)
+    constraints += budget_constraints(w, 1.0, budget, min_budget, max_budget)
 
     if linear_constraints is not None and len(linear_constraints) > 0:
         if groups is None:
@@ -435,7 +445,7 @@ def project_convex(
         constraints.append(
             cp.norm(centered, 2) / np.sqrt(max(T - 1, 1)) <= float(max_tracking_error)
         )
-    elif covariance is not None and variance_bound is not None:
+    if covariance is not None and variance_bound is not None:
         # Variance-style bound alternative
         Sigma = np.asarray(covariance, dtype=float)
         constraints.append(cp.quad_form(w, Sigma) <= float(variance_bound))
@@ -459,10 +469,7 @@ def project_convex(
             tol_feas=1e-10,
         )
 
-    try:
-        prob.solve(**solver_params)
-    except Exception:
-        prob.solve(verbose=False)
+    prob.solve(**solver_params)
 
     if w.value is None or prob.status not in (cp.OPTIMAL, cp.OPTIMAL_INACCURATE):
         raise ValueError(f"Infeasible or failed convex projection: {prob.status}")
@@ -471,3 +478,35 @@ def project_convex(
     ):
         raise ValueError("Convex projection returned an infeasible solution")
     return np.asarray(w.value, dtype=float)
+
+
+def project_entropy_box(
+    y: ArrayLike,
+    lower: ArrayLike | float | None,
+    upper: ArrayLike | float | None,
+    budget: float | None,
+) -> np.ndarray:
+    """KL projection using a scalar multiplier, preserving free-coordinate ratios."""
+    if budget is None:
+        return project_convex(
+            y, budget=None, lower=lower, upper=upper, geometry="entropy"
+        )
+    values = np.asarray(y, dtype=float)
+    lo = np.broadcast_to(0.0 if lower is None else lower, values.shape)
+    hi = np.broadcast_to(1.0 if upper is None else upper, values.shape)
+    if np.any(values < 0) or np.any(lo < 0) or np.any(lo > hi):
+        raise ValueError("Entropy projection requires consistent nonnegative bounds")
+    if not lo.sum() <= budget <= hi.sum():
+        raise ValueError("Infeasible box bounds and budget")
+    log_values = np.log(np.maximum(values, 1e-300))
+    left, right = -1500.0, 1500.0
+    for _ in range(160):
+        mid = (left + right) / 2
+        weights = np.clip(np.exp(np.clip(log_values + mid, -745, 700)), lo, hi)
+        if abs(weights.sum() - budget) < 1e-12:
+            return weights
+        if weights.sum() > budget:
+            right = mid
+        else:
+            left = mid
+    return weights
