@@ -210,6 +210,7 @@ def test_adaptive_log_barrier_smoothness():
     ],
 )
 def test_compositions_invertibility(mirror_map_cls):
+    rng = np.random.default_rng(261)
     map_obj = mirror_map_cls()
     n = 5
     num_samples = 10
@@ -224,7 +225,7 @@ def test_compositions_invertibility(mirror_map_cls):
             assert_allclose(x_reconstructed, x, atol=tol, rtol=0)
 
             # Dual: handle simplex invariance (add constant doesn't change softmax)
-            theta = psi_x + np.random.uniform(-1, 1, n)  # perturbed dual
+            theta = psi_x + rng.uniform(-1, 1, n)  # perturbed dual
             psi_star_theta = map_obj.grad_psi_star(theta)
             psi_reconstructed = map_obj.grad_psi(psi_star_theta)
             # Subtract mean to handle additive invariance
@@ -245,7 +246,13 @@ def test_compositions_invertibility(mirror_map_cls):
             x_reconstructed = map_obj.grad_psi_star(psi_x)
             assert_allclose(x_reconstructed, x, atol=tol, rtol=0)
 
-            theta = psi_x + np.random.randn(n) * 0.1
+            if domain == "orthant":
+                # The log-barrier conjugate exists only for negative dual values.
+                # Additive noise can cross zero and invalidate the round trip.
+                theta = psi_x * np.exp(rng.normal(0, 0.1, n))
+                assert np.all(theta < 0)
+            else:
+                theta = psi_x + rng.normal(0, 0.1, n)
             psi_star_theta = map_obj.grad_psi_star(theta)
             psi_reconstructed = map_obj.grad_psi(psi_star_theta)
             # LogBarrier can have numerical issues with very small values, use relaxed tolerance
@@ -430,7 +437,6 @@ def test_adaptive_variation_map_invertibility_and_update():
 
 def test_prod_mirror_map_interface():
     """Test that BurgMirrorMap works correctly within FOCO engine."""
-    d = 3
     mirror_map = BurgMirrorMap()
     engine = FirstOrderOCO(
         mirror_map=mirror_map,
@@ -467,7 +473,7 @@ def test_burg_constrained_inverse_large_eta():
 
     with _w.catch_warnings():
         _w.simplefilter("error", RuntimeWarning)
-        w_next, lam = mirror.constrained_inverse(w, eta, g)
+        w_next, _lam = mirror.constrained_inverse(w, eta, g)
     assert np.all(np.isfinite(w_next)), "Non-finite weights from Burg solver"
     assert np.all(w_next >= 0), "Negative weights from Burg solver"
     assert np.isclose(np.sum(w_next), 1.0, atol=1e-6), "Weights don't sum to 1"
@@ -484,7 +490,7 @@ def test_burg_constrained_inverse_singularity_near():
 
     with _w.catch_warnings():
         _w.simplefilter("error", RuntimeWarning)
-        w_next, lam = mirror.constrained_inverse(w, eta, g)
+        w_next, _lam = mirror.constrained_inverse(w, eta, g)
     assert np.all(np.isfinite(w_next)), "Non-finite weights near singularity"
     assert np.all(w_next >= 0), "Negative weights near singularity"
     assert np.isclose(np.sum(w_next), 1.0, atol=1e-6)

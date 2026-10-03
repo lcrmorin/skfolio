@@ -155,7 +155,7 @@ def test_objective_not_implemented_raises_value_error():
 
 def test_turnover_cap_enforced_each_round():
     from skfolio.model_selection import online_predict
-    from skfolio.optimization.online import FollowTheWinner, FollowTheLoser
+    from skfolio.optimization.online import FollowTheWinner
 
     X = np.array([[0.2, -0.2, 0], [-0.2, 0.2, 0]] * 8)
     model = FollowTheWinner(learning_rate=5.0, update_mode="omd")

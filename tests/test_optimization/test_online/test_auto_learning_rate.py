@@ -11,15 +11,15 @@ import warnings
 import numpy as np
 import pytest
 
-from skfolio.measures._enums import PerfMeasure, RiskMeasure
+from skfolio.measures._enums import RiskMeasure
 from skfolio.optimization.online._autograd_objectives import MEASURE_PROPERTIES
 from skfolio.optimization.online._learning_rate import (
     compute_eg_learning_rate,
     compute_ogd_learning_rate,
     compute_prod_learning_rate,
     estimate_gradient_bound,
-    simplex_diameter,
     get_auto_learning_rate,
+    simplex_diameter,
 )
 from skfolio.optimization.online._mixins import FTWStrategy
 

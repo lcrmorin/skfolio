@@ -12,7 +12,13 @@ import numpy as np
 from skfolio.optimization.online._utils import CLIP_EPSILON
 
 
-def l1median_vazhz_vec(X, max_iter=200, tol=1e-9, zero_tol=1e-15, med_initial=None):
+def l1median_vazhz_vec(
+    X: np.ndarray,
+    max_iter: int = 200,
+    tol: float = 1e-9,
+    zero_tol: float = 1e-15,
+    med_initial: np.ndarray | None = None,
+) -> np.ndarray:
     """
     Compute the L1 (geometric) median of X using the Vardi-Zhang (Weiszfeld-type) algorithm.
     Vectorized implementation (no explicit loop over samples).
@@ -79,27 +85,33 @@ def l1median_vazhz_vec(X, max_iter=200, tol=1e-9, zero_tol=1e-15, med_initial=No
 
 
 class BaseReversionPredictor:
+    """Interface for causal price-relative predictions."""
+
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         self._d = d
 
     def update_and_predict(self, x_t: np.ndarray) -> np.ndarray:
+        """Consume one price-relative vector and predict the next one."""
         raise NotImplementedError
 
 
 class OLMAR1Predictor(BaseReversionPredictor):
     """OLMAR-SMA moving-average reversion predictor."""
 
-    def __init__(self, window: int = 5):
+    def __init__(self, window: int = 5) -> None:
         if window < 1:
             raise ValueError("window must be >= 1.")
         self.window = int(window)
         self._history: list[np.ndarray] = []
 
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         super().reset(d)
         self._history = []
 
     def update_and_predict(self, x_t: np.ndarray) -> np.ndarray:
+        """Consume one price-relative vector and predict the next one."""
         x_t = np.asarray(x_t, dtype=float)
         self._history.append(x_t)
         T = len(self._history)
@@ -119,17 +131,19 @@ class OLMAR1Predictor(BaseReversionPredictor):
 class OLMAR2Predictor(BaseReversionPredictor):
     """OLMAR-EWMA exponential-smoothing reversion predictor."""
 
-    def __init__(self, alpha: float = 0.5):
+    def __init__(self, alpha: float = 0.5) -> None:
         if not (0.0 <= alpha <= 1.0):
             raise ValueError("alpha must be in [0, 1].")
         self.alpha = float(alpha)
         self._phi: np.ndarray | None = None
 
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         super().reset(d)
         self._phi = np.ones(d, dtype=float)
 
     def update_and_predict(self, x_t: np.ndarray) -> np.ndarray:
+        """Consume one price-relative vector and predict the next one."""
         if self._phi is None:
             self._phi = np.ones_like(x_t)
         self._phi = self.alpha * np.ones_like(x_t) + (1.0 - self.alpha) * (
@@ -161,7 +175,9 @@ class RMRPredictor(BaseReversionPredictor):
     IJCAI.
     """
 
-    def __init__(self, window: int = 5, max_iter: int = 200, tolerance: float = 1e-9):
+    def __init__(
+        self, window: int = 5, max_iter: int = 200, tolerance: float = 1e-9
+    ) -> None:
         if window < 1:
             raise ValueError("window must be >= 1.")
         if max_iter < 1:
@@ -175,11 +191,13 @@ class RMRPredictor(BaseReversionPredictor):
         self._price_history: list[np.ndarray] = []
 
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         super().reset(d)
         self._history = []
         self._price_history = []
 
     def update_and_predict(self, x_t: np.ndarray) -> np.ndarray:
+        """Consume one price-relative vector and predict the next one."""
         x_t = np.asarray(x_t, dtype=float)
         self._history.append(x_t)
 
@@ -210,15 +228,19 @@ class RMRPredictor(BaseReversionPredictor):
 
 
 class OMDPredictor(ABC):
+    """Interface for predicting gradients in optimistic mirror descent."""
+
     @abstractmethod
-    def __call__(self, *args: Any, **kwds: Any) -> Any:
+    def __call__(self, *args: Any, **kwds: Any) -> np.ndarray:
         pass
 
 
 class ZeroPredictor(OMDPredictor):
     """Predictor that always returns zero - should match vanilla OMD."""
 
-    def __call__(self, t, x, g):
+    def __call__(
+        self, t: int, x: np.ndarray | None, g: np.ndarray | None
+    ) -> np.ndarray:
         if x is not None:
             return np.zeros_like(x)
         if g is not None:
@@ -229,10 +251,12 @@ class ZeroPredictor(OMDPredictor):
 class ConstantPredictor(OMDPredictor):
     """Predictor that returns a constant vector."""
 
-    def __init__(self, value):
+    def __init__(self, value: np.ndarray) -> None:
         self.value = value
 
-    def __call__(self, t, x, g):
+    def __call__(
+        self, t: int, x: np.ndarray | None, g: np.ndarray | None
+    ) -> np.ndarray:
         return self.value.copy()
 
 
@@ -283,7 +307,7 @@ class SmoothPredictor(OMDPredictor):
     Rakhlin & Sridharan (2013). "Online Learning with Predictable Sequences."
     """
 
-    def __init__(self, smoothness_L: float = 1.0):
+    def __init__(self, smoothness_L: float = 1.0) -> None:
         self.smoothness_L = smoothness_L
         self.last_grad = None
 

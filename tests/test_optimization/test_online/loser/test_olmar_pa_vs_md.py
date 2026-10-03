@@ -214,7 +214,7 @@ class TestOLMARModeEquivalence:
         denom = float(np.dot(c, c))
         lambda_pa = ell / denom if denom > 0 else 0.0
 
-        print(f"\nPA step details:")
+        print("\nPA step details:")
         print(f"  Phi (predictor): {phi}")
         print(f"  Margin (phi^T w): {margin:.6f}")
         print(f"  Violation (ell): {ell:.6f}")
@@ -277,7 +277,6 @@ class TestOLMARModeEquivalence:
         So MD gradient should be -c_pa.
         """
         X = simple_data.iloc[:2].values
-        epsilon = 2.0
         alpha = 0.5
 
         # Compute phi for OLMAR-2

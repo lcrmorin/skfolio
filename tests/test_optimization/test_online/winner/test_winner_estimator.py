@@ -225,7 +225,9 @@ class TestFollowTheWinnerConstraints:
         assert l1 <= max_turnover + 1e-8
         assert_box_budget(est.weights_, 0.0, 1.0, 1.0)
 
-    def test_convex_fallback_groups_linear(self, X_small_single, groups, linear_constraints):
+    def test_convex_fallback_groups_linear(
+        self, X_small_single, groups, linear_constraints
+    ):
         # Force convex path via groups/linear constraints
         budget = 0.9
         est = FollowTheWinner(

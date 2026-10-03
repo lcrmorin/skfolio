@@ -8,6 +8,8 @@ This test suite validates:
 5. Factory function create_objective
 """
 
+from typing import ClassVar
+
 import numpy as np
 import pytest
 
@@ -252,7 +254,7 @@ class TestAnalyticalGradientUniqueness:
     """Test that all analytical gradients produce unique results."""
 
     # Measures with analytical gradient implementations
-    ANALYTICAL_MEASURES = [
+    ANALYTICAL_MEASURES: ClassVar[list] = [
         PerfMeasure.LOG_WEALTH,
         PerfMeasure.MEAN,
         RiskMeasure.VARIANCE,
@@ -396,7 +398,7 @@ class TestAnalyticalGradientUniqueness:
 
         if failures:
             msg = "The following measures have identical gradients for different data (broken gradient):\n"
-            for measure, data_type, g1, g2 in failures:
+            for measure, data_type, g1, _g2 in failures:
                 msg += f"\n  {measure} ({data_type})"
                 msg += f"\n    Gradient: {g1} (same for both datasets)"
             raise AssertionError(msg)

@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import cvxpy as cp
 import numpy as np
 import numpy.typing as npt
@@ -57,19 +59,21 @@ class CRP(BaseOptimization):
         self.weights = weights
         self.portfolio_params = portfolio_params
 
-    def partial_fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None):
+    def partial_fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None) -> CRP:
+        """Update the comparator target using the supplied observations."""
+        X = np.asarray(X)
         if self.weights is None:
             n = X.shape[1]
             self.weights_ = np.ones(n) / n
             if self.portfolio_params is not None:
                 self.portfolio_params["name"] = "UCRP"
         else:
-            self.weights_ = self.weights
+            self.weights_ = np.asarray(self.weights, dtype=float)
             if self.portfolio_params is not None:
                 self.portfolio_params["name"] = "CRP"
         return self
 
-    def fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None):  # type: ignore[override]
+    def fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None) -> CRP:
         """Fit the CRP/UCRP and compute wealth trajectory.
 
         Parameters
@@ -100,7 +104,7 @@ class CRP(BaseOptimization):
 
         # Compute wealth evolution (constant rebalanced portfolio)
         for t in range(T):
-            weight_history.append(self.weights_.copy())
+            weight_history.append(np.asarray(self.weights_, dtype=float).copy())
             portfolio_return = np.dot(self.weights_, relatives[t])
             self.wealth_ *= portfolio_return
             wealth_history.append(self.wealth_)
@@ -113,6 +117,8 @@ class CRP(BaseOptimization):
 
 # utility class for UCRP
 class UCRP(CRP):
+    """Uniform constant-rebalanced portfolio comparator."""
+
     def __init__(
         self, weights: npt.ArrayLike | None = None, portfolio_params: dict | None = None
     ) -> None:
@@ -145,17 +151,20 @@ class BestStock(BaseOptimization):
         Weight history: weights used at the start of each period (before observing returns).
     """
 
-    def __init__(self, portfolio_params: dict | None = None):
+    def __init__(self, portfolio_params: dict | None = None) -> None:
         super().__init__(portfolio_params=portfolio_params)
 
-    def partial_fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None):
+    def partial_fit(
+        self, X: npt.ArrayLike, y: npt.ArrayLike | None = None
+    ) -> BestStock:
+        """Update the comparator target using the supplied observations."""
         relatives = net_to_relatives(X)
         best_stock = np.argmax(np.sum(np.log(relatives), axis=0, keepdims=True), axis=1)
         self.weights_ = np.zeros(relatives.shape[1])
         self.weights_[best_stock] = 1.0
         return self
 
-    def fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None):
+    def fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None) -> BestStock:
         """Fit BestStock and compute wealth trajectory.
 
         Parameters
@@ -186,7 +195,7 @@ class BestStock(BaseOptimization):
 
         # Compute wealth evolution (all capital in best stock)
         for t in range(T):
-            weight_history.append(self.weights_.copy())
+            weight_history.append(np.asarray(self.weights_, dtype=float).copy())
             portfolio_return = np.dot(self.weights_, relatives[t])
             self.wealth_ *= portfolio_return
             wealth_history.append(self.wealth_)
@@ -346,7 +355,7 @@ class BCRP(MeanRisk):
     n_features_in_: int
 
     @staticmethod
-    def _log_wealth_expr(w: cp.Variable, estimator) -> cp.Expression:
+    def _log_wealth_expr(w: cp.Variable, estimator: MeanRisk) -> cp.Expression:
         """Log-wealth objective: sum_t log(r_t^T w)."""
         rd = estimator.prior_estimator_.return_distribution_
         relatives = 1.0 + rd.returns
@@ -378,7 +387,7 @@ class BCRP(MeanRisk):
         save_problem: bool = False,
         raise_on_failure: bool = True,
         add_objective: skt.ExpressionFunction | None = None,
-        add_constraints: skt.ExpressionFunction | None = None,
+        add_constraints: skt.ConstraintFunction | None = None,
         portfolio_params: dict | None = None,
         # Additional MeanRisk parameters for risk measures
         cvar_beta: float = 0.95,
@@ -387,7 +396,7 @@ class BCRP(MeanRisk):
         edar_beta: float = 0.95,
         min_acceptable_return: skt.Target | None = None,
         risk_free_rate: float = 0.0,
-    ):
+    ) -> None:
         # Determine configuration based on objective_measure
         if objective_measure == PerfMeasure.LOG_WEALTH:
             # Log-wealth maximization: override expected return with log-sum
@@ -449,10 +458,13 @@ class BCRP(MeanRisk):
         self.max_turnover = max_turnover
         self.objective_measure = objective_measure
 
-    def partial_fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None):
+    def partial_fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None) -> BCRP:
+        """Update the comparator target using the supplied observations."""
         return self.fit(X, y)
 
-    def fit(self, X: npt.ArrayLike, y: npt.ArrayLike | None = None, **fit_params):
+    def fit(
+        self, X: npt.ArrayLike, y: npt.ArrayLike | None = None, **fit_params: Any
+    ) -> BCRP:
         """Fit BCRP and compute wealth trajectory.
 
         Parameters
@@ -484,7 +496,7 @@ class BCRP(MeanRisk):
 
         # Compute wealth evolution with constant optimal weights
         for t in range(T):
-            weight_history.append(self.weights_.copy())
+            weight_history.append(np.asarray(self.weights_, dtype=float).copy())
             portfolio_return = np.dot(self.weights_, relatives[t])
             self.wealth_ *= portfolio_return
             wealth_history.append(self.wealth_)
@@ -495,7 +507,7 @@ class BCRP(MeanRisk):
         return self
 
     def fit_dynamic(
-        self, X: npt.ArrayLike, y: npt.ArrayLike | None = None, **fit_params
+        self, X: npt.ArrayLike, y: npt.ArrayLike | None = None, **fit_params: Any
     ) -> MeanRisk:
         """Fit over increasingly large folds and compute wealth trajectory.
 
@@ -529,11 +541,15 @@ class BCRP(MeanRisk):
 
         for t in range(1, T + 1):
             if t == 1:
-                weights_list.append(BestStock().fit(X_arr[:t, :]).weights_.copy())
+                weights_list.append(
+                    np.asarray(
+                        BestStock().fit(X_arr[:t, :]).weights_, dtype=float
+                    ).copy()
+                )
             else:
                 # Fit on prefix up to time t (inclusive)
                 super().fit(X_arr[:t, :], y, **fit_params)
-                weights_list.append(self.weights_.copy())
+                weights_list.append(np.asarray(self.weights_, dtype=float).copy())
 
             # Update wealth for this period
             portfolio_return = np.dot(weights_list[-1], relatives[t - 1])

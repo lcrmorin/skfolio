@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 
 from skfolio.measures import PerfMeasure, RiskMeasure
-from skfolio.optimization.convex._base import ObjectiveFunction
 from skfolio.optimization.online import BCRP
 from skfolio.optimization.online._autograd_objectives import MEASURE_PROPERTIES
 from skfolio.optimization.online._benchmark import CRP, UCRP, BestStock

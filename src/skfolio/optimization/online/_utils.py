@@ -4,8 +4,6 @@
 # Author: Carlo Nicolini <nicolini.carlo@gmail.com>
 # SPDX-License-Identifier: BSD-3-Clause
 
-from itertools import combinations
-
 import numpy as np
 from numpy.typing import ArrayLike
 

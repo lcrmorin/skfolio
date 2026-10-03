@@ -161,7 +161,7 @@ def test_cwmr_state_persists_between_modes():
     X = np.array([[0.0, 0.0], [0.18, -0.09]], dtype=float)
     model.fit(X[:1])
     mu_pa = model.weights_.copy()
-    sigma_pa = model._cwmr_Sdiag.copy()
+    model._cwmr_Sdiag.copy()
     # Switch to OCO update while keeping learned state
     model.update_mode = "md"
     model.partial_fit(X[1:2])

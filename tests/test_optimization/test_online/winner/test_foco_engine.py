@@ -54,7 +54,7 @@ def test_entropy_omd_ftrl_equivalence_constant_eta(d, T):
         W_omd.append(omd.step(g).copy())
         W_ftr.append(ftr.step(g).copy())
 
-    for w1, w2 in zip(W_omd, W_ftr):
+    for w1, w2 in zip(W_omd, W_ftr, strict=True):
         assert_simplex(w1)
         assert_simplex(w2)
         # Entropy map equivalence up to numerical error
@@ -85,7 +85,6 @@ def test_euclidean_omd_step_matches_formula_identity_projector():
 
 def test_euclidean_ftrl_matches_dual_averaging_identity_projector():
     # With Euclidean map and identity projector, FTRL step is x_{t+1} = - eta_t * sum_{s<=t} g_s
-    d = 4
     g0 = np.array([1.0, 2.0, -3.0, 0.5])
     g1 = np.array([0.0, -1.0, 1.0, -0.5])
     eta = 0.1
@@ -199,7 +198,6 @@ def test_eta_schedule_array_and_callable():
 
 def test_dynamic_mirror_maps_update_internals():
     # Check that dynamic maps update state (AdaGrad, AdaBARRONS)
-    d = 3
     g0 = np.array([2.0, 0.0, 0.0])
     g1 = np.array([2.0, 0.0, 0.0])
 
@@ -283,7 +281,7 @@ def test_zero_predictor_matches_vanilla_omd():
         weights_vanilla.append(w2)
 
     # They should produce identical trajectories
-    for w1, w2 in zip(weights_optimistic, weights_vanilla, strict=False):
+    for w1, w2 in zip(weights_optimistic, weights_vanilla, strict=True):
         np.testing.assert_allclose(w1, w2, rtol=1e-10, atol=1e-10)
 
 
@@ -456,7 +454,6 @@ def test_omd_vs_ftrl_modes_with_predictor():
 def test_numerical_example_hand_calculated():
     """Test against hand-calculated optimistic OMD update."""
     # Simple 2D case with Euclidean mirror map
-    d = 2
     eta = 1.0
 
     map_obj = EuclideanMirrorMap()
@@ -529,7 +526,7 @@ def test_smooth_gradients_lower_regret():
     # Create smooth gradient sequence (slowly changing)
     base_grad = np.random.randn(d)
     gradients = []
-    for t in range(T):
+    for _t in range(T):
         noise = np.random.randn(d) * 0.01  # Small noise
         gradients.append(base_grad + noise)
         base_grad = base_grad * 0.99 + noise  # Slow drift

@@ -21,6 +21,7 @@ import sklearn as sk
 import sklearn.base as skb
 import sklearn.utils as sku
 from sklearn.pipeline import Pipeline
+from sklearn.utils.validation import _num_samples
 
 import skfolio.typing as skt
 from skfolio.measures import BaseMeasure, RatioMeasure
@@ -574,7 +575,7 @@ def _online_walk_forward(
     if warmup_size == 0:
         if test_size != 1 or freq is not None or purged_size:
             raise ValueError("Continuation requires contiguous one-period evaluation")
-        for i in range(len(X)):
+        for i in range(_num_samples(X)):
             if i:
                 fit_single_estimator(
                     estimator,
@@ -585,13 +586,13 @@ def _online_walk_forward(
                     method="partial_fit",
                 )
             yield slice(i, i + 1)
-        if refit_last and len(X):
+        if refit_last and _num_samples(X):
             fit_single_estimator(
                 estimator,
                 X,
                 y,
                 fit_params=routed_params.estimator_params,
-                indices=slice(len(X) - 1, len(X)),
+                indices=slice(_num_samples(X) - 1, _num_samples(X)),
                 method="partial_fit",
             )
         return

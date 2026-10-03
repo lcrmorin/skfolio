@@ -56,8 +56,8 @@ class PAMRStrategy(BaseStrategy):
         epsilon: float,
         pamr_variant: PAMRVariant = PAMRVariant.SIMPLE,
         pamr_C: float = 10.0,
-        transaction_costs_arr: np.ndarray | None = None,
-    ):
+        transaction_costs_arr: float | np.ndarray | None = None,
+    ) -> None:
         self.engine = engine
         self.objective = objective
         self.epsilon = epsilon
@@ -69,9 +69,11 @@ class PAMRStrategy(BaseStrategy):
         self._turnover_penalty_disabled_warned = False
 
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         pass  # PAMR has no state
 
     def should_update(self, t: int) -> bool:
+        """Allow an update for each observed return."""
         return True  # Always update
 
     def step(
@@ -207,7 +209,7 @@ class CWMRStrategy(BaseStrategy):
         cwmr_var_lr: float,
         epsilon: float,
         initial_weights: np.ndarray,
-    ):
+    ) -> None:
         self.cwmr_eta = cwmr_eta
         self.cwmr_sigma0 = cwmr_sigma0
         self.cwmr_min_var = cwmr_min_var
@@ -222,6 +224,7 @@ class CWMRStrategy(BaseStrategy):
         self._initial_weights = initial_weights
 
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         if self._quantile is None:
             self._quantile = float(norm.ppf(self.cwmr_eta))
         if self._mu is None:
@@ -233,6 +236,7 @@ class CWMRStrategy(BaseStrategy):
             )
 
     def should_update(self, t: int) -> bool:
+        """Allow an update for each observed return."""
         return True
 
     def step(
@@ -253,6 +257,9 @@ class CWMRStrategy(BaseStrategy):
         self, trade_w: np.ndarray, x_t: np.ndarray, projector: AutoProjector
     ) -> np.ndarray:
         """CWMR passive-aggressive step (closed-form KKT solution)."""
+        assert self._mu is not None
+        assert self._Sdiag is not None
+        assert self._quantile is not None
         mu_new, diag_new = _cwmr.pa_distribution_update(
             self._mu, self._Sdiag, x_t, self.epsilon, self._quantile
         )
@@ -276,6 +283,9 @@ class CWMRStrategy(BaseStrategy):
 
         WARNING: This is experimental. The standard CWMR uses PA mode.
         """
+        assert self._mu is not None
+        assert self._Sdiag is not None
+        assert self._quantile is not None
         phi = float(self._quantile)
         s = float(np.dot(self._Sdiag * x_t, x_t))
         sqrt_s = np.sqrt(max(s, 0.0))
@@ -321,9 +331,9 @@ class OLMARStrategy(BaseStrategy):
         objective: BaseObjective,
         engine: FirstOrderOCO | None,
         epsilon: float,
-        olmar_order: int,
-        transaction_costs_arr: np.ndarray | None = None,
-    ):
+        olmar_order: int | str,
+        transaction_costs_arr: float | np.ndarray | None = None,
+    ) -> None:
         self.predictor = predictor
         self.objective = objective
         self.engine = engine
@@ -334,19 +344,21 @@ class OLMARStrategy(BaseStrategy):
         self._turnover_penalty_disabled_warned = False
 
     def reset(self, d: int) -> None:
+        """Clear the prediction history for a new asset universe."""
         self.predictor.reset(d)
         self._t = 0
 
     def should_update(self, t: int) -> bool:
+        """Check whether the reversion predictor has enough history."""
         self._t = t
         if self.olmar_order == 1:
             # OLMAR-1 needs window periods of history before updating
             # After window periods (t=0,1,...,window-1), we have window+1 prices
             # Start updating at t=window
-            return t >= self.predictor.window
+            return t >= getattr(self.predictor, "window", 1)
         elif self.olmar_order == "rmr":
             # RMR uses same cold-start as OLMAR-1
-            return t >= self.predictor.window
+            return t >= getattr(self.predictor, "window", 1)
         # OLMAR-2 can start updating from t >= 1
         return t >= 1
 

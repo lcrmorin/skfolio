@@ -14,16 +14,16 @@ from skfolio.optimization.online._regret import RegretType, plot_regret_curve, r
 from skfolio.optimization.online._winner import FTWStrategy, FollowTheWinner
 
 __all__ = [
-    "BaseOnlineOptimization",
     "BCRP",
-    "BestStock",
     "CRP",
-    "FollowTheLoser",
-    "FollowTheWinner",
+    "UCRP",
+    "BaseOnlineOptimization",
+    "BestStock",
     "FTLStrategy",
     "FTWStrategy",
-    "regret",
-    "plot_regret_curve",
+    "FollowTheLoser",
+    "FollowTheWinner",
     "RegretType",
-    "UCRP",
+    "plot_regret_curve",
+    "regret",
 ]

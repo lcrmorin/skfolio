@@ -92,7 +92,7 @@ class TestPAMRModeEquivalence:
         denom = float(np.dot(c, c))
         tau_pa = ell / denom if denom > 0 else 0.0
 
-        print(f"\nPA step details:")
+        print("\nPA step details:")
         print(f"  Margin (w^T x): {margin:.6f}")
         print(f"  Violation (ell): {ell:.6f}")
         print(f"  ||c||^2: {denom:.6f}")
@@ -208,7 +208,7 @@ class TestPAMRModeEquivalence:
         weights_pa_final = model_pa.weights_.copy()
         all_weights_pa = model_pa.all_weights_.copy()
 
-        print(f"\nPA mode:")
+        print("\nPA mode:")
         print(f"  Final weights: {weights_pa_final}")
         print(f"  All weights shape: {all_weights_pa.shape}")
 
@@ -254,7 +254,7 @@ class TestPAMRModeEquivalence:
 
         # PA gradient
         margin = float(x_t @ w_init)
-        ell = max(0.0, margin - epsilon)
+        max(0.0, margin - epsilon)
         c_pa = x_t - np.mean(x_t)
 
         # MD gradient (when violated)

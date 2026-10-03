@@ -4,7 +4,7 @@ import numpy as np
 from skfolio.optimization.online import (
     FollowTheLoser,
 )
-from skfolio.optimization.online._prediction import OLMAR1Predictor, OLMAR2Predictor
+from skfolio.optimization.online._prediction import OLMAR2Predictor
 from skfolio.optimization.online._projection import project_box_and_sum
 from skfolio.optimization.online._utils import CLIP_EPSILON
 
@@ -66,7 +66,7 @@ def test_pa_step_equals_closed_form_projection():
 
 def test_turnover_constraint_enforced():
     from skfolio.model_selection import online_predict
-    from skfolio.optimization.online import FollowTheWinner, FollowTheLoser
+    from skfolio.optimization.online import FollowTheLoser
 
     X = np.array([[0.2, -0.2, 0], [-0.2, 0.2, 0]] * 8)
     model = FollowTheLoser(strategy="olmar", olmar_window=2)

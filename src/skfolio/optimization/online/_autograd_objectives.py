@@ -65,20 +65,23 @@ from __future__ import annotations
 
 import warnings
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import partial
-from typing import Any
+from importlib import import_module
+from typing import Any, NoReturn, cast
 
 import numpy as np
 
 try:
-    import autograd.numpy as anp
-    from autograd import grad
+    # Autograd builds its NumPy namespace dynamically and is an optional backend.
+    anp = import_module("autograd.numpy")
+    grad = import_module("autograd").grad
 except ImportError:
     # Analytical objectives must work without a runtime autograd dependency.
     anp = np
 
-    def grad(*args: Any, **kwargs: Any) -> Any:
+    def grad(*args: Any, **kwargs: Any) -> NoReturn:
         raise ImportError(
             "autograd is required only for use_autograd=True; "
             "use analytical gradients or install autograd for verification."
@@ -116,11 +119,13 @@ class BaseObjective(ABC):
         If False, use analytical gradients (when available).
     """
 
-    def __init__(self, use_autograd: bool = True):
+    def __init__(self, use_autograd: bool = True) -> None:
         self.use_autograd = use_autograd
 
     @abstractmethod
-    def loss(self, weights: np.ndarray, net_returns: np.ndarray, **kwargs) -> float:
+    def loss(
+        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
+    ) -> float:
         """Compute the loss value.
 
         Parameters
@@ -141,7 +146,7 @@ class BaseObjective(ABC):
 
     @abstractmethod
     def grad(
-        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs
+        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
     ) -> np.ndarray:
         """Compute the gradient of the loss.
 
@@ -183,7 +188,7 @@ def _sample_covariance(net_returns: np.ndarray) -> np.ndarray:
 
 
 def _analytical_log_wealth_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of log-wealth: ∇_w (-log(1 + w^T r)) = -r / (1 + w^T r).
 
@@ -215,7 +220,7 @@ def _analytical_log_wealth_gradient(
 
 
 def _analytical_mean_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of mean (expected return).
 
@@ -242,7 +247,7 @@ def _analytical_mean_gradient(
 
 
 def _analytical_variance_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of variance: ∇_w var = 2Σw.
 
@@ -272,7 +277,7 @@ def _analytical_variance_gradient(
 
 
 def _analytical_semi_variance_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of semi-variance (unbiased estimator).
 
@@ -337,7 +342,7 @@ def _analytical_semi_variance_gradient(
 
 
 def _analytical_standard_deviation_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of Standard Deviation.
 
@@ -381,7 +386,7 @@ def _analytical_standard_deviation_gradient(
 
 
 def _analytical_semi_deviation_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of Semi-Deviation (unbiased estimator).
 
@@ -429,7 +434,7 @@ def _analytical_semi_deviation_gradient(
 
 
 def _analytical_mean_absolute_deviation_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of Mean Absolute Deviation.
 
@@ -471,7 +476,7 @@ def _analytical_mean_absolute_deviation_gradient(
 
 
 def _analytical_first_lower_partial_moment_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of First Lower Partial Moment.
 
@@ -522,7 +527,7 @@ def _analytical_first_lower_partial_moment_gradient(
 
 
 def _analytical_worst_realization_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of Worst Realization (negative minimum return).
 
@@ -551,7 +556,7 @@ def _analytical_worst_realization_gradient(
 
 
 def _analytical_gini_mean_difference_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of Gini Mean Difference.
 
@@ -633,7 +638,7 @@ def _find_theta_star_empirical(
 
     log1mbeta = np.log(1.0 - beta)
 
-    def F_and_dF(theta: float):
+    def F_and_dF(theta: float) -> tuple[float, float]:
         """Compute F(theta) and dF/dtheta with numerical stability."""
         a = theta * x
         a_max = np.max(a)
@@ -646,7 +651,7 @@ def _find_theta_star_empirical(
 
     # Initialize bracket
     theta = 1.0
-    F0, dF0 = F_and_dF(theta)
+    _F0, dF0 = F_and_dF(theta)
     low = 1e-12
     high = None
     sign0 = np.sign(dF0)
@@ -654,7 +659,7 @@ def _find_theta_star_empirical(
     # Find bracket where dF changes sign
     for it in range(80):
         theta_try = theta * (2.0**it)
-        F_try, dF_try = F_and_dF(theta_try)
+        _F_try, dF_try = F_and_dF(theta_try)
         if np.sign(dF_try) != sign0:
             low = min(theta, theta_try)
             high = max(theta, theta_try)
@@ -667,7 +672,7 @@ def _find_theta_star_empirical(
     # Newton with backtracking
     theta_k = max(1e-8, min(1.0, (low + high) / 2.0))
     for _ in range(maxiter):
-        Fk, dFk = F_and_dF(theta_k)
+        _Fk, dFk = F_and_dF(theta_k)
         if abs(dFk) < tol:
             return float(theta_k)
 
@@ -689,7 +694,7 @@ def _find_theta_star_empirical(
             theta_new = 0.5 * (theta_k + (high if dFk > 0 else low))
 
         # Update bracket
-        F_new, dF_new = F_and_dF(theta_new)
+        _F_new, dF_new = F_and_dF(theta_new)
         if abs(dF_new) < tol:
             return float(theta_new)
 
@@ -708,7 +713,9 @@ def _find_theta_star_empirical(
     return float(theta_k)
 
 
-def _wealth_and_dwealth(net_returns: np.ndarray, w: np.ndarray):
+def _wealth_and_dwealth(
+    net_returns: np.ndarray, w: np.ndarray
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute wealth S_t and derivatives dS_t/dw.
 
     Parameters
@@ -763,7 +770,7 @@ def _wealth_and_dwealth(net_returns: np.ndarray, w: np.ndarray):
 
 def _drawdowns_and_derivatives(
     net_returns: np.ndarray, w: np.ndarray, compounded: bool = False
-):
+) -> tuple[np.ndarray, np.ndarray]:
     """Compute D_t and ∂D_t/∂w for drawdowns.
 
     Parameters
@@ -841,7 +848,7 @@ def _drawdowns_and_derivatives(
 
 
 def _analytical_evar_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical EVaR gradient using envelope theorem.
 
@@ -865,7 +872,7 @@ def _analytical_evar_gradient(
     beta = kwargs.get("beta", 0.95)
     R = np.asarray(net_returns, dtype=float)
     w = np.asarray(weights, dtype=float)
-    N, d = R.shape
+    _N, _d = R.shape
 
     # Losses L_i = -(r_i^T w)
     L = -(R @ w)
@@ -889,7 +896,7 @@ def _analytical_evar_gradient(
 
 
 def _analytical_cdar_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical CDaR gradient (CVaR on drawdowns with fractional handling).
 
@@ -945,7 +952,7 @@ def _analytical_cdar_gradient(
 
 
 def _analytical_edar_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical EDaR gradient using envelope theorem on drawdowns.
 
@@ -972,7 +979,7 @@ def _analytical_edar_gradient(
     compounded = kwargs.get("compounded", False)
     R = np.asarray(net_returns, dtype=float)
     w = np.asarray(weights, dtype=float)
-    T, d = R.shape
+    _T, _d = R.shape
 
     # Compute drawdowns and derivatives (default: cumsum-based)
     D, dD = _drawdowns_and_derivatives(R, w, compounded=compounded)
@@ -996,7 +1003,7 @@ def _analytical_edar_gradient(
 
 
 def _analytical_cvar_gradient(
-    weights: np.ndarray, net_returns: np.ndarray, **kwargs
+    weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
 ) -> np.ndarray:
     """Analytical gradient of CVaR (Conditional Value at Risk).
 
@@ -1147,12 +1154,12 @@ MEASURE_PROPERTIES = {
 
 
 # Individual measure functions for clarity and testability
-def _autograd_log_wealth(portfolio_returns: np.ndarray, **kwargs) -> anp.ndarray:
+def _autograd_log_wealth(portfolio_returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Compute log-wealth."""
     return anp.sum(anp.log(1.0 + portfolio_returns))
 
 
-def _autograd_mean(returns: np.ndarray, **kwargs) -> anp.ndarray:
+def _autograd_mean(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible mean matching skfolio.measures.mean.
 
     Shapes
@@ -1165,7 +1172,7 @@ def _autograd_mean(returns: np.ndarray, **kwargs) -> anp.ndarray:
     return anp.mean(returns) if returns.ndim == 1 else anp.mean(returns, axis=0)
 
 
-def _autograd_variance(returns, **kwargs):
+def _autograd_variance(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible variance matching skfolio.measures.variance.
 
     - Unbiased (ddof=1) for T>1; axis=0 for matrix inputs
@@ -1191,7 +1198,7 @@ def _autograd_variance(returns, **kwargs):
         return anp.sum((returns - m) ** 2, axis=0) / (T - 1)
 
 
-def _autograd_standard_deviation(returns, **kwargs):
+def _autograd_standard_deviation(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible standard deviation matching skfolio.measures.standard_deviation.
 
     - Unbiased variance under sqrt; axis=0 for matrix inputs
@@ -1219,7 +1226,7 @@ def _autograd_standard_deviation(returns, **kwargs):
         return anp.sqrt(var + CLIP_EPSILON)
 
 
-def _autograd_semi_variance(returns, **kwargs):
+def _autograd_semi_variance(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible semi-variance matching skfolio.measures.semi_variance.
 
     - Unbiased factor T/(T-1); MAR defaults per-asset for 2D; axis=0
@@ -1247,7 +1254,7 @@ def _autograd_semi_variance(returns, **kwargs):
         return biased_sv * T / (T - 1) if T > 1 else biased_sv
 
 
-def _autograd_semi_deviation(returns, **kwargs):
+def _autograd_semi_deviation(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible semi-deviation (sqrt of semi-variance).
 
     Shapes
@@ -1261,7 +1268,7 @@ def _autograd_semi_deviation(returns, **kwargs):
     return anp.sqrt(semi_var)
 
 
-def _autograd_mean_absolute_deviation(returns, **kwargs):
+def _autograd_mean_absolute_deviation(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible MAD matching skfolio.measures.mean_absolute_deviation.
 
     - MAR defaults per-asset for 2D; axis=0 reduction
@@ -1288,7 +1295,9 @@ def _autograd_mean_absolute_deviation(returns, **kwargs):
         return anp.mean(anp.abs(returns - m), axis=0)
 
 
-def _autograd_first_lower_partial_moment(returns, **kwargs):
+def _autograd_first_lower_partial_moment(
+    returns: np.ndarray, **kwargs: Any
+) -> np.ndarray:
     """Autograd-compatible FLPM matching skfolio.measures.first_lower_partial_moment.
 
     - MAR defaults per-asset for 2D; axis=0 reduction
@@ -1313,7 +1322,7 @@ def _autograd_first_lower_partial_moment(returns, **kwargs):
         return anp.mean(downside, axis=0)
 
 
-def _autograd_cvar(returns, **kwargs):
+def _autograd_cvar(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible CVaR matching skfolio.measures.cvar.
 
     - Empirical CVaR with fractional handling; axis=0 for matrix inputs
@@ -1344,7 +1353,7 @@ def _autograd_cvar(returns, **kwargs):
         return -head_sum / k + sorted_ret[ik, :] * (ik / k - 1.0)
 
 
-def _autograd_evar(returns, **kwargs):
+def _autograd_evar(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-friendly EVaR via smooth-min over a theta grid (axis-aware).
 
     - Uses a log-sum-exp softmin over a logarithmic grid of theta values to
@@ -1388,7 +1397,7 @@ def _autograd_evar(returns, **kwargs):
         return anp.min(phi, axis=0)
 
 
-def _autograd_worst_realization(returns, **kwargs):
+def _autograd_worst_realization(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible worst realization matching skfolio.measures.worst_realization.
 
     Shapes
@@ -1401,7 +1410,7 @@ def _autograd_worst_realization(returns, **kwargs):
     return -anp.min(returns) if returns.ndim == 1 else -anp.min(returns, axis=0)
 
 
-def _autograd_gini_mean_difference(returns, **kwargs):
+def _autograd_gini_mean_difference(returns: np.ndarray, **kwargs: Any) -> np.ndarray:
     """Autograd-compatible GMD matching skfolio.measures.gini_mean_difference.
 
     - Uses OWA weights; sorts along time (axis=0); axis=0 reduction for 2D
@@ -1427,12 +1436,14 @@ def _autograd_gini_mean_difference(returns, **kwargs):
         return anp.dot(w, sorted_rets)
 
 
-def smooth_max(a, b, beta=100.0):
+def smooth_max(
+    a: np.ndarray | float, b: np.ndarray | float, beta: float = 100.0
+) -> np.ndarray | float:
     """Smooth approximation of max(a,b). Higher beta = sharper approximation."""
     return (1.0 / beta) * anp.log(anp.exp(beta * a) + anp.exp(beta * b))
 
 
-def smooth_cummax(x, beta=100.0):
+def smooth_cummax(x: np.ndarray, beta: float = 100.0) -> np.ndarray:
     """Differentiable smooth running maximum."""
     out = anp.copy(x)
     for i in range(1, len(x)):
@@ -1440,7 +1451,9 @@ def smooth_cummax(x, beta=100.0):
     return out
 
 
-def _autograd_get_drawdowns(returns, compounded=False, beta=None):
+def _autograd_get_drawdowns(
+    returns: np.ndarray, compounded: bool = False, beta: float | None = None
+) -> np.ndarray:
     """Compute drawdowns with optional smooth approximation.
 
     Parameters
@@ -1472,7 +1485,12 @@ def _autograd_get_drawdowns(returns, compounded=False, beta=None):
     return drawdowns
 
 
-def _autograd_cdar(returns, beta=0.95, compounded=False, smooth_beta=None):
+def _autograd_cdar(
+    returns: np.ndarray,
+    beta: float | None = 0.95,
+    compounded: bool = False,
+    smooth_beta: float | None = None,
+) -> np.ndarray:
     """Compute CDaR (Conditional Drawdown at Risk).
 
     Parameters
@@ -1498,7 +1516,12 @@ def _autograd_cdar(returns, beta=0.95, compounded=False, smooth_beta=None):
     return _autograd_cvar(drawdowns, beta=beta)
 
 
-def _autograd_edar(returns, beta=0.95, compounded=False, smooth_beta=None):
+def _autograd_edar(
+    returns: np.ndarray,
+    beta: float | None = 0.95,
+    compounded: bool = False,
+    smooth_beta: float | None = None,
+) -> np.ndarray:
     """Compute EDaR (Entropic Drawdown at Risk) - approximated via EVaR on drawdowns.
 
     Parameters
@@ -1525,7 +1548,8 @@ def _autograd_edar(returns, beta=0.95, compounded=False, smooth_beta=None):
     return _autograd_evar(drawdowns, beta=beta)
 
 
-def _get_autograd_measure_fn(measure: BaseMeasure, **kwargs):
+def _get_autograd_measure_fn(measure: BaseMeasure | None, **kwargs: Any) -> Callable:
+    """Select the differentiable implementation of the requested measure."""
     match measure:
         case PerfMeasure.LOG_WEALTH:
             return partial[Any](_autograd_log_wealth, **kwargs)
@@ -1584,7 +1608,7 @@ class MeasureObjective(BaseObjective):
         Confidence level for EDaR.
     """
 
-    measure: RiskMeasure | PerfMeasure | None = None
+    measure: BaseMeasure | None = None
     use_autograd: bool = True
     risk_free_rate: float = 0.0
     min_acceptable_return: float = 0.0
@@ -1593,7 +1617,7 @@ class MeasureObjective(BaseObjective):
     cdar_beta: float = 0.95
     edar_beta: float = 0.95
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         # Default to log-wealth if measure is None
         if self.measure is None:
             self.measure = PerfMeasure.LOG_WEALTH
@@ -1603,7 +1627,7 @@ class MeasureObjective(BaseObjective):
             raise ValueError(f"Unknown measure: {self.measure}")
 
         self.properties = MEASURE_PROPERTIES[self.measure]
-        self._sign = self.properties["sign"]
+        self._sign = cast(float, self.properties["sign"])
 
         # Create gradient function
         if self.use_autograd:
@@ -1634,7 +1658,9 @@ class MeasureObjective(BaseObjective):
             return net_returns.reshape(1, -1)
         return net_returns
 
-    def _loss_fn(self, weights, net_returns, **kwargs):
+    def _loss_fn(
+        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
+    ) -> np.ndarray:
         """Autograd-compatible loss computation with unified 2D handling.
 
         Parameters
@@ -1653,7 +1679,7 @@ class MeasureObjective(BaseObjective):
         returns = anp.dot(net_returns_2d, weights)  # Shape: (T,)
         return self._sign * _get_autograd_measure_fn(self.measure)(returns, **kwargs)
 
-    def _autograd_measure(self, returns, **kwargs):
+    def _autograd_measure(self, returns: np.ndarray, **kwargs: Any) -> np.ndarray:
         """Dispatch to individual measure functions.
 
         Parameters
@@ -1674,39 +1700,9 @@ class MeasureObjective(BaseObjective):
         like variance are undefined for a single sample. Each measure has its own
         dedicated function for clarity and testability.
         """
-        match self.measure:
-            case PerfMeasure.LOG_WEALTH:
-                return self._autograd_log_wealth(returns, **kwargs)
-            case PerfMeasure.MEAN:
-                return self._autograd_mean(returns, **kwargs)
-            case RiskMeasure.VARIANCE:
-                return self._autograd_variance(returns, **kwargs)
-            case RiskMeasure.STANDARD_DEVIATION:
-                return self._autograd_standard_deviation(returns, **kwargs)
-            case RiskMeasure.SEMI_VARIANCE:
-                return self._autograd_semi_variance(returns, **kwargs)
-            case RiskMeasure.SEMI_DEVIATION:
-                return self._autograd_semi_deviation(returns, **kwargs)
-            case RiskMeasure.MEAN_ABSOLUTE_DEVIATION:
-                return self._autograd_mad(returns, **kwargs)
-            case RiskMeasure.FIRST_LOWER_PARTIAL_MOMENT:
-                return self._autograd_flpm(returns, **kwargs)
-            case RiskMeasure.CVAR:
-                return self._autograd_cvar(returns, **kwargs)
-            case RiskMeasure.EVAR:
-                return self._autograd_evar(returns, **kwargs)
-            case RiskMeasure.WORST_REALIZATION:
-                return self._autograd_worst_realization(returns, **kwargs)
-            case RiskMeasure.GINI_MEAN_DIFFERENCE:
-                return self._autograd_gini(returns, **kwargs)
-            case RiskMeasure.CDAR:
-                return self._autograd_cdar(returns, **kwargs)
-            case RiskMeasure.EDAR:
-                return self._autograd_edar(returns, **kwargs)
-            case _:
-                raise ValueError(f"Unsupported measure: {self.measure}")
+        return _get_autograd_measure_fn(self.measure)(returns, **kwargs)
 
-    def _get_analytical_grad_fn(self):
+    def _get_analytical_grad_fn(self) -> Callable:
         """Get analytical gradient function for the measure.
 
         Returns
@@ -1764,12 +1760,17 @@ class MeasureObjective(BaseObjective):
                 raise ValueError(f"No analytical gradient available for {self.measure}")
 
         # Wrap with sign multiplication to match loss function
-        def signed_grad_fn(weights, net_returns, **kwargs):
-            return self._sign * base_grad_fn(weights, net_returns, **kwargs)
+        def signed_grad_fn(
+            weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
+        ) -> np.ndarray:
+            """Apply the objective sign to its analytical portfolio gradient."""
+            return float(self._sign) * base_grad_fn(weights, net_returns, **kwargs)
 
         return signed_grad_fn
 
-    def loss(self, weights: np.ndarray, net_returns: np.ndarray, **kwargs) -> float:
+    def loss(
+        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
+    ) -> float:
         """Compute loss value with unified 2D handling.
 
         Parameters
@@ -1789,7 +1790,7 @@ class MeasureObjective(BaseObjective):
         return float(self._loss_fn(weights, net_returns, **kwargs))
 
     def grad(
-        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs
+        self, weights: np.ndarray, net_returns: np.ndarray, **kwargs: Any
     ) -> np.ndarray:
         """Compute gradient with unified 2D handling.
 
@@ -1841,7 +1842,7 @@ class MeanReversionHinge(BaseObjective):
     epsilon: float
     use_autograd: bool = False
 
-    def loss(self, weights: np.ndarray, phi: np.ndarray, **kwargs) -> float:
+    def loss(self, weights: np.ndarray, phi: np.ndarray, **kwargs: Any) -> float:
         """Compute hinge loss value.
 
         Parameters
@@ -1861,7 +1862,7 @@ class MeanReversionHinge(BaseObjective):
         margin = self.epsilon - np.dot(weights, phi)
         return float(max(0.0, margin))
 
-    def grad(self, weights: np.ndarray, phi: np.ndarray, **kwargs) -> np.ndarray:
+    def grad(self, weights: np.ndarray, phi: np.ndarray, **kwargs: Any) -> np.ndarray:
         """Compute hinge loss gradient w.r.t. weights.
 
         Parameters
@@ -1907,7 +1908,7 @@ class MeanReversionSquaredHinge(BaseObjective):
     epsilon: float
     use_autograd: bool = False
 
-    def loss(self, weights: np.ndarray, phi: np.ndarray, **kwargs) -> float:
+    def loss(self, weights: np.ndarray, phi: np.ndarray, **kwargs: Any) -> float:
         """Compute squared hinge loss value.
 
         Parameters
@@ -1927,7 +1928,7 @@ class MeanReversionSquaredHinge(BaseObjective):
         margin = self.epsilon - np.dot(weights, phi)
         return float(max(0.0, margin) ** 2)
 
-    def grad(self, weights: np.ndarray, phi: np.ndarray, **kwargs) -> np.ndarray:
+    def grad(self, weights: np.ndarray, phi: np.ndarray, **kwargs: Any) -> np.ndarray:
         """Compute squared hinge gradient w.r.t. weights.
 
         Parameters
@@ -1968,7 +1969,7 @@ class MeanReversionSoftplus(BaseObjective):
 
     Notes
     -----
-    Gradient: ∇_w L(w) = -σ(β(ε - φ^T w))φ where σ is the sigmoid function.
+    Gradient: ∇_w L(w) = -sigmoid(β(ε - φ^T w))φ where sigmoid is the sigmoid function.
     The loss is convex, infinitely differentiable, and exp-concave for bounded β.
     Admits O(log T) regret in OCO with appropriate algorithms.
     """
@@ -1977,7 +1978,7 @@ class MeanReversionSoftplus(BaseObjective):
     beta: float = 5.0
     use_autograd: bool = False
 
-    def loss(self, weights: np.ndarray, phi: np.ndarray, **kwargs) -> float:
+    def loss(self, weights: np.ndarray, phi: np.ndarray, **kwargs: Any) -> float:
         """Compute softplus loss value.
 
         Parameters
@@ -1998,7 +1999,7 @@ class MeanReversionSoftplus(BaseObjective):
         # Use log1p for numerical stability when beta*margin is small
         return float(np.log(1.0 + np.exp(self.beta * margin)) / self.beta)
 
-    def grad(self, weights: np.ndarray, phi: np.ndarray, **kwargs) -> np.ndarray:
+    def grad(self, weights: np.ndarray, phi: np.ndarray, **kwargs: Any) -> np.ndarray:
         """Compute softplus gradient w.r.t. weights.
 
         Parameters
@@ -2016,7 +2017,7 @@ class MeanReversionSoftplus(BaseObjective):
             Gradient vector.
         """
         margin = self.epsilon - np.dot(weights, phi)
-        # Sigmoid: σ(z) = 1 / (1 + exp(-z))
+        # Sigmoid: sigmoid(z) = 1 / (1 + exp(-z))
         sigmoid = 1.0 / (1.0 + np.exp(-self.beta * margin))
         return -sigmoid * phi
 
@@ -2088,7 +2089,7 @@ def create_mean_reversion_objective(
 def create_objective(
     measure: BaseMeasure | None,
     use_autograd: bool = True,
-    **kwargs,
+    **kwargs: Any,
 ) -> BaseObjective:
     """Factory function to create objective from measure enum.
 

@@ -4,11 +4,12 @@
 # Author: Carlo Nicolini <nicolini.carlo@gmail.com>
 # SPDX-License-Identifier: BSD-3-Clause
 
-from enum import StrEnum, auto
+from enum import Enum
 from typing import Any
 
 import cvxpy as cp
 import numpy as np
+import plotly.graph_objects as go
 from numpy.typing import ArrayLike
 
 from skfolio.optimization._base import BaseOptimization
@@ -18,15 +19,17 @@ from skfolio.optimization.online._utils import CLIP_EPSILON, net_to_relatives
 _LEGACY_TO_REGRET: dict[Any, "RegretType"] = {}
 
 
-class RegretType(StrEnum):
-    STATIC = auto()
+class RegretType(str, Enum):
+    """Available historical comparator conventions."""
+
+    STATIC = "static"
     # Legacy dynamic mode (prefix BCRP). Kept for backward compatibility.
-    DYNAMIC = auto()
-    DYNAMIC_UNIVERSAL = (
-        auto()
-    )  # universal dynamic regret with path-length budget or penalty
-    DYNAMIC_WORST_CASE = auto()  # per-round minimizers (one-hot on argmax relative)
-    DYNAMIC_LEGACY = auto()  # explicit alias for legacy
+    DYNAMIC = "dynamic"
+    DYNAMIC_UNIVERSAL = "dynamic_universal"  # universal dynamic regret with path-length budget or penalty
+    DYNAMIC_WORST_CASE = (
+        "dynamic_worst_case"  # per-round minimizers (one-hot on argmax relative)
+    )
+    DYNAMIC_LEGACY = "dynamic_legacy"  # explicit alias for legacy
 
 
 if isinstance(LegacyRegretType, type):
@@ -49,10 +52,10 @@ if isinstance(LegacyRegretType, type):
 def plot_regret_curve(
     regret: ArrayLike,
     *,
-    fig: Any | None = None,
+    fig: go.Figure | None = None,
     average: bool = True,
     label: str | None = None,
-):
+) -> go.Figure:
     """Plot a regret curve over time using plotly.
 
     Parameters
@@ -259,8 +262,8 @@ def _universal_dynamic_weights(
     where non-stationarity is captured by the path-length PT, a key regularity in
     dynamic regret bounds for OGD and SWORD families.
 
-    See Also
-    --------
+    References
+    ----------
     Zhao, Peng et al, "Adaptivity and Non-stationarity: Problem-dependent Dynamic Regret for Online Convex Optimization", JMLR 25 (2024), Eq. 2
     """
     R = np.asarray(relatives, dtype=float)
@@ -305,11 +308,12 @@ def _universal_dynamic_weights(
         constraints.append(path_expr <= float(path_length))
         objective = cp.Maximize(cp.sum(obj_terms))
     else:
+        assert path_penalty is not None
         objective = cp.Maximize(cp.sum(obj_terms) - float(path_penalty) * path_expr)
 
     prob = cp.Problem(objective, constraints)
     try:
-        prob.solve(solver=solver, **(solver_params or {}))
+        prob.solve(solver=solver or "CLARABEL", **(solver_params or {}))
     except Exception:
         prob.solve(**(solver_params or {}))
 
@@ -436,7 +440,10 @@ def regret(
                 raise ValueError(
                     "Legacy dynamic regret requested but comparator has no fit_dynamic method"
                 )
-            comp.fit_dynamic(X)
+            fit_dynamic = comp.fit_dynamic
+            if not callable(fit_dynamic):
+                raise TypeError("fit_dynamic must be callable")
+            fit_dynamic(X)
             if not hasattr(comp, "all_weights_"):
                 raise RuntimeError("comparator.fit_dynamic must set all_weights_")
             comp_losses = _losses_from_weights(
@@ -462,7 +469,7 @@ def regret(
             path_length=cfg.get("path_length", None),
             path_penalty=cfg.get("path_penalty", None),
             norm=cfg.get("norm", "l1"),
-            solver=solver,
+            solver=solver or "CLARABEL",
             solver_params=solver_params,
         )
         comp_losses = _losses_from_weights(relatives, W_ud)

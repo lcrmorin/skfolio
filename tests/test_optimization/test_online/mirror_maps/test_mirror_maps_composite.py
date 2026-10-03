@@ -359,7 +359,7 @@ class TestAdaBarronsCorrectImplementation:
 
     def test_ada_barrons_barrier_weight_proximity_update(self):
         """Test that AdaBarronsBarrierMap updates based on weight proximity, not gradients."""
-        rng = np.random.default_rng(100)
+        np.random.default_rng(100)
         d = 5
 
         barrier = AdaBarronsBarrierMap(barrier_coef=1.0, alpha=0.5)
@@ -483,7 +483,7 @@ class TestAdaBarronsCorrectImplementation:
         - Euclidean scales as d * coef
         - Full quadratic accumulates g g^T
         """
-        rng = np.random.default_rng(104)
+        np.random.default_rng(104)
         d = 4
 
         barrier_coef = 1.0
@@ -1085,7 +1085,7 @@ class TestConsistencyAcrossUpdates:
         comp = adaptive + barrier
 
         # Test roundtrip after each update
-        for round in range(5):
+        for iteration in range(5):
             # Update adaptive map
             g = rng.normal(size=d)
             adaptive.update_state(g)
@@ -1095,9 +1095,13 @@ class TestConsistencyAcrossUpdates:
             z = comp.grad_psi(w)
             w_rec = comp.grad_psi_star(z)
 
-            assert np.all(w_rec > 0), f"Failed at round {round}"
+            assert np.all(w_rec > 0), f"Failed at iteration {iteration}"
             assert_allclose(
-                w_rec, w, rtol=1e-9, atol=1e-11, err_msg=f"Failed at round {round}"
+                w_rec,
+                w,
+                rtol=1e-9,
+                atol=1e-11,
+                err_msg=f"Failed at iteration {iteration}",
             )
 
     def test_ada_barrons_barrier_multiple_updates(self):
@@ -1113,7 +1117,7 @@ class TestConsistencyAcrossUpdates:
         comp = barrier + euclid
 
         # Test roundtrip after each weight update
-        for round in range(5):
+        for iteration in range(5):
             # Update barrier with weight history
             w_history = rng.random(d) * 0.6 + 0.2
             barrier.update_state(w_history)
@@ -1123,7 +1127,11 @@ class TestConsistencyAcrossUpdates:
             z = comp.grad_psi(w)
             w_rec = comp.grad_psi_star(z)
 
-            assert np.all(w_rec > 0), f"Failed at round {round}"
+            assert np.all(w_rec > 0), f"Failed at iteration {iteration}"
             assert_allclose(
-                w_rec, w, rtol=1e-9, atol=1e-11, err_msg=f"Failed at round {round}"
+                w_rec,
+                w,
+                rtol=1e-9,
+                atol=1e-11,
+                err_msg=f"Failed at iteration {iteration}",
             )

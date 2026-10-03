@@ -46,7 +46,7 @@ def test_universal_dynamic_pt_zero_equals_static():
 
 def test_universal_dynamic_monotonic_in_pt():
     """
-    As path_length increases, the universal comparator’s feasible set enlarges
+    As path_length increases, the universal comparator's feasible set enlarges
     => comparator loss decreases
     => dynamic regret (online - comparator) is non-decreasing in PT.
     """

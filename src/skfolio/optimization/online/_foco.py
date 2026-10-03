@@ -100,7 +100,7 @@ class FirstOrderOCO:
         mode: Literal["omd", "ftrl"] = "omd",
         skip_auto_update: bool = False,
         discount: float | None = None,
-    ):
+    ) -> None:
         self.map = mirror_map
         self.projector = projector
         self.eta = eta
@@ -115,8 +115,9 @@ class FirstOrderOCO:
         self._prev_prediction: np.ndarray | None = None
 
     def _get_eta(self, t: int) -> float:
+        """Evaluate the learning-rate schedule at observation t."""
         if callable(self.eta):
-            return float(self.eta(t))
+            return float(np.asarray(self.eta(t)))
         if isinstance(self.eta, np.ndarray):
             if t < len(self.eta):
                 return float(self.eta[t])
@@ -143,6 +144,7 @@ class FirstOrderOCO:
         return x
 
     def step(self, g: np.ndarray) -> np.ndarray:
+        """Consume a gradient and return the next portfolio decision."""
         g = np.asarray(g, dtype=float)
         if self._G_sum is None:
             self._G_sum = np.zeros_like(g)
@@ -268,7 +270,7 @@ class SwordMeta:
         experts: list[FirstOrderOCO],
         projector: BaseProjector,
         eta_meta: EtaSchedule = 1.0,
-    ):
+    ) -> None:
         if len(experts) < 2:
             raise ValueError("SwordMeta requires at least 2 experts.")
         self.experts = experts
@@ -278,8 +280,9 @@ class SwordMeta:
         self._t: int = 0
 
     def _get_eta_meta(self, t: int) -> float:
+        """Evaluate the mixture learning-rate schedule at observation t."""
         if callable(self.eta_meta):
-            return float(self.eta_meta(t))
+            return float(np.asarray(self.eta_meta(t)))
         if isinstance(self.eta_meta, np.ndarray):
             if t < len(self.eta_meta):
                 return float(self.eta_meta[t])
@@ -287,6 +290,7 @@ class SwordMeta:
         return float(self.eta_meta)
 
     def step(self, g: np.ndarray) -> np.ndarray:
+        """Consume a gradient and return the next portfolio decision."""
         g = np.asarray(g, dtype=float)
         d = g.shape[0]
         K = len(self.experts)

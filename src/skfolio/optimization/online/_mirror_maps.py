@@ -59,7 +59,9 @@ class _DampedNewtonInverse:
     via the first-order optimality condition.
     """
 
-    def __init__(self, D: np.ndarray, a: np.ndarray, A: np.ndarray, eps: float = 1e-16):
+    def __init__(
+        self, D: np.ndarray, a: np.ndarray, A: np.ndarray, eps: float = 1e-16
+    ) -> None:
         self.D = np.asarray(D, dtype=float)
         self.a = np.asarray(a, dtype=float)
         self.A = np.asarray(A, dtype=float)
@@ -326,9 +328,11 @@ class EuclideanMirrorMap(BaseMirrorMap):
     """Euclidean mirror map for Online Gradient Descent."""
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         return w
 
     def grad_psi_star(self, z: np.ndarray) -> np.ndarray:
+        """Map dual coordinates back to primal weights."""
         return z
 
     def project_geom(self, w: np.ndarray) -> np.ndarray:
@@ -343,10 +347,12 @@ class EntropyMirrorMap(BaseMirrorMap):
         # Using log(w) directly as per existing EntropicMirrorDescent implementation
         # This corresponds to a potential function that is slightly different from
         # standard Shannon entropy but results in the multiplicative update rule.
+        """Map primal weights into dual coordinates using this potential."""
         return np.log(np.maximum(w, 1e-16)) + 1
 
     def grad_psi_star(self, z: np.ndarray) -> np.ndarray:
         # The dual-to-primal mapping for entropy is the softmax function.
+        """Map dual coordinates back to primal weights."""
         return softmax(z - 1.0, axis=0)
 
     def project_geom(self, w: np.ndarray) -> np.ndarray:
@@ -478,7 +484,7 @@ class BurgMirrorMap(BaseMirrorMap):
         eps: float = 1e-16,
         max_iter: int = 50,
         tol: float = 1e-12,
-    ):
+    ) -> None:
         self.barrier_coef = float(barrier_coef)
         self.eps = float(eps)
         self.max_iter = int(max_iter)
@@ -699,16 +705,18 @@ class LogBarrierMap(DynamicMirrorMap):
        Algorithms in Convex Programming. SIAM.
     """
 
-    def __init__(self, barrier_coef: float = 1.0, eps: float = 1e-16):
+    def __init__(self, barrier_coef: float = 1.0, eps: float = 1e-16) -> None:
         self.barrier_coef = barrier_coef
         self.eps = eps
         self._D = np.array([], dtype=float)
 
-    def _ensure(self, d: int):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._D.size == 0:
             self._D = np.zeros(d, dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def update_state(self, g: np.ndarray) -> None:
@@ -740,21 +748,23 @@ class LogBarrierMap(DynamicMirrorMap):
 class TsallisMirrorMap(BaseMirrorMap):
     """Tsallis mirror. q in (0,1) typically."""
 
-    def __init__(self, q: float = 0.7):
+    def __init__(self, q: float = 0.7) -> None:
         self.q = q
         self._is_entropic_limit = abs(q - 1.0) < 1e-14
         self._entropy_map = EntropyMirrorMap() if self._is_entropic_limit else None
 
-    def grad_psi(self, w):
-        if self._is_entropic_limit:
+    def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
+        if self._entropy_map is not None:
             return self._entropy_map.grad_psi(w)
 
         q = self.q
         # Corresponds to potential 1/(1-q) * (sum(w_i^q) - 1), grad is q/(1-q) * w_i^(q-1)
         return self.q * (w ** (q - 1.0)) / (1.0 - q)
 
-    def grad_psi_star(self, z):
-        if self._is_entropic_limit:
+    def grad_psi_star(self, z: np.ndarray) -> np.ndarray:
+        """Map dual coordinates back to primal weights."""
+        if self._entropy_map is not None:
             return self._entropy_map.grad_psi_star(z)
 
         q = self.q
@@ -764,6 +774,7 @@ class TsallisMirrorMap(BaseMirrorMap):
         return w
 
     def project_geom(self, w: np.ndarray) -> np.ndarray:
+        """Apply the domain restrictions of this mirror map."""
         w = np.maximum(w, 1e-16)
         return w / np.sum(w)
 
@@ -775,47 +786,56 @@ class AdaptiveMahalanobisMap(DynamicMirrorMap):
     ψ(w) = (1/2) w^T diag(H) w, where H_ii = sqrt(sum g_{s,i}^2 + eps).
     """
 
-    def __init__(self, d: int | None = None, eps: float = 1e-8):
+    def __init__(self, d: int | None = None, eps: float = 1e-8) -> None:
         self.eps = eps
         self._Gsq = np.array([], dtype=float)
 
-    def _ensure(self, d: int):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._Gsq.size == 0:
             self._Gsq = np.zeros(d, dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def H_diag(self) -> np.ndarray:
+        """Return the diagonal curvature of the current potential."""
         # Pre-geometry: keep absolute eps inside sqrt for numerical safety
         return np.sqrt(self._Gsq + self.eps)
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         self._ensure(w.shape[0])
         h = self.H_diag()
         return h * w
 
     def grad_psi_star(self, z: np.ndarray) -> np.ndarray:
+        """Map dual coordinates back to primal weights."""
         self._ensure(z.shape[0])
         h = self.H_diag()
         return z / h
 
     # Aggregated 'after' geometry (scale-homogeneous): NO eps here
     def _H_after(self, g: np.ndarray) -> np.ndarray:
+        """Compute the curvature matrix including the pending gradient."""
         Gsq_after = self._Gsq + g * g
         return np.sqrt(Gsq_after + self.eps)
 
     def grad_psi_after(self, w: np.ndarray, g: np.ndarray) -> np.ndarray:
+        """Evaluate the primal gradient with the pending adaptive update."""
         self._ensure(w.shape[0])
         h_after = self._H_after(g)
         return h_after * w
 
     def grad_psi_star_after(self, z: np.ndarray, g: np.ndarray) -> np.ndarray:
+        """Invert dual coordinates with the pending adaptive update."""
         self._ensure(z.shape[0])
         h_after = self._H_after(g)
         return z / h_after
 
     def update_state(self, g: np.ndarray) -> None:
+        """Update the adaptive potential with the newly observed vector."""
         self._ensure(g.shape[0])
         self._Gsq += g * g
 
@@ -833,26 +853,31 @@ class AdaptiveLogBarrierMap(DynamicMirrorMap):
     ψ(w) = -sum D_i log(w_i), where D accumulates gradient magnitudes |g|.
     """
 
-    def __init__(self, d: int | None = None, eps: float = 1e-12):
+    def __init__(self, d: int | None = None, eps: float = 1e-12) -> None:
         self.eps = eps
         self._D = np.array([], dtype=float)
 
-    def _ensure(self, d):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._D.size == 0:
             self._D = np.zeros(d, dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def update_state(self, g: np.ndarray) -> None:
+        """Update the adaptive potential with the newly observed vector."""
         self._ensure(g.shape[0])
         self._D += np.abs(g)
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         self._ensure(w.shape[0])
         return -self._D / np.maximum(w, self.eps)
 
     def grad_psi_star(self, z: np.ndarray) -> np.ndarray:
+        """Map dual coordinates back to primal weights."""
         self._ensure(z.shape[0])
         w = np.zeros_like(z)
         mask = self._D > 0
@@ -863,15 +888,18 @@ class AdaptiveLogBarrierMap(DynamicMirrorMap):
         return np.clip(w, self.eps, None)
 
     def _D_after(self, g: np.ndarray) -> np.ndarray:
+        """Compute diagonal curvature including the pending gradient."""
         self._ensure(g.shape[0])
         return self._D + np.abs(g)
 
     def grad_psi_after(self, w: np.ndarray, g: np.ndarray) -> np.ndarray:
+        """Evaluate the primal gradient with the pending adaptive update."""
         self._ensure(w.shape[0])
         D_after = self._D_after(g)
         return -D_after / np.maximum(w, self.eps)
 
     def grad_psi_star_after(self, z: np.ndarray, g: np.ndarray) -> np.ndarray:
+        """Invert dual coordinates with the pending adaptive update."""
         self._ensure(z.shape[0])
         D_after = self._D_after(g)
         w = np.zeros_like(z)
@@ -881,6 +909,7 @@ class AdaptiveLogBarrierMap(DynamicMirrorMap):
         return np.clip(w, self.eps, None)
 
     def project_geom(self, w: np.ndarray) -> np.ndarray:
+        """Apply the domain restrictions of this mirror map."""
         return w / np.sum(w)
 
 
@@ -891,32 +920,38 @@ class AdaptiveVariationMap(DynamicMirrorMap):
     ψ(w) = (1/2) w^T diag(H) w, where H_ii = sqrt(sum (g_t - g_{t-1})^2 + eps).
     """
 
-    def __init__(self, d: int | None = None, eps: float = 1e-12):
+    def __init__(self, d: int | None = None, eps: float = 1e-12) -> None:
         self.eps = eps
         self._DeltaSq = np.array([], dtype=float)
         self._g_last = None
 
-    def _ensure(self, d: int):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._DeltaSq.size == 0:
             self._DeltaSq = np.zeros(d, dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def _H_diag_current(self) -> np.ndarray:
+        """Return the current diagonal curvature."""
         return np.sqrt(self._DeltaSq + self.eps)
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         self._ensure(w.shape[0])
         h = self._H_diag_current()
         return h * w
 
     def grad_psi_star(self, z: np.ndarray) -> np.ndarray:
+        """Map dual coordinates back to primal weights."""
         self._ensure(z.shape[0])
         h = self._H_diag_current()
         return z / h
 
     def _H_diag_after(self, g: np.ndarray) -> np.ndarray:
+        """Return diagonal curvature including the pending gradient."""
         self._ensure(g.shape[0])
         if self._g_last is None:
             delta = np.zeros_like(g)
@@ -926,16 +961,19 @@ class AdaptiveVariationMap(DynamicMirrorMap):
         return np.sqrt(DeltaSq_after + self.eps)
 
     def grad_psi_after(self, w: np.ndarray, g: np.ndarray) -> np.ndarray:
+        """Evaluate the primal gradient with the pending adaptive update."""
         self._ensure(w.shape[0])
         h_after = self._H_diag_after(g)
         return h_after * w
 
     def grad_psi_star_after(self, z: np.ndarray, g: np.ndarray) -> np.ndarray:
+        """Invert dual coordinates with the pending adaptive update."""
         self._ensure(z.shape[0])
         h_after = self._H_diag_after(g)
         return z / h_after
 
     def update_state(self, g: np.ndarray) -> None:
+        """Update the adaptive potential with the newly observed vector."""
         self._ensure(g.shape[0])
         if self._g_last is None:
             delta = np.zeros_like(g)
@@ -960,10 +998,11 @@ class EuclideanMap(DynamicMirrorMap):
     Used in Ada-BARRONS compositions.
     """
 
-    def __init__(self, d_coef: float = 1.0):
+    def __init__(self, d_coef: float = 1.0) -> None:
         self.d_coef = float(d_coef)
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         d = w.shape[0]
         return self.d_coef * d * w
 
@@ -983,19 +1022,22 @@ class DiagonalQuadraticMap(DynamicMirrorMap):
     where :math:`H_{ii}` accumulates gradient squared statistics.
     """
 
-    def __init__(self, beta: float = 0.1, eps: float = 1e-16):
+    def __init__(self, beta: float = 0.1, eps: float = 1e-16) -> None:
         self.beta = float(beta)
         self.eps = float(eps)
         self._H_diag = np.array([], dtype=float)
 
-    def _ensure(self, d: int):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._H_diag.size == 0:
             self._H_diag = np.zeros(d, dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         self._ensure(w.shape[0])
         return self.beta * self._H_diag * w
 
@@ -1005,6 +1047,7 @@ class DiagonalQuadraticMap(DynamicMirrorMap):
         return z / (self.beta * self._H_diag + self.eps)
 
     def update_state(self, g: np.ndarray) -> None:
+        """Update the adaptive potential with the newly observed vector."""
         self._ensure(g.shape[0])
         self._H_diag += g * g
 
@@ -1025,19 +1068,22 @@ class FullQuadraticMap(DynamicMirrorMap):
        Machine Learning, 69, 169-192.
     """
 
-    def __init__(self, beta: float = 0.1, eps: float = 1e-12):
+    def __init__(self, beta: float = 0.1, eps: float = 1e-12) -> None:
         self.beta = float(beta)
         self.eps = float(eps)
         self._A = np.array([], dtype=float)
 
-    def _ensure(self, d: int):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._A.size == 0:
             self._A = np.zeros((d, d), dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def grad_psi(self, w: np.ndarray) -> np.ndarray:
+        """Map primal weights into dual coordinates using this potential."""
         self._ensure(w.shape[0])
         return self.beta * (self._A @ w)
 
@@ -1048,6 +1094,7 @@ class FullQuadraticMap(DynamicMirrorMap):
         return np.linalg.solve(A_reg, z)
 
     def update_state(self, g: np.ndarray) -> None:
+        """Update the adaptive potential with the newly observed vector."""
         self._ensure(g.shape[0])
         self._A += np.outer(g, g)
 
@@ -1084,7 +1131,7 @@ class CompositeMirrorMap(DynamicMirrorMap):
     - Coupled case: Damped Newton on strictly convex objective with SPD Jacobian.
     """
 
-    def __init__(self, components: list[BaseMirrorMap], eps: float = 1e-16):
+    def __init__(self, components: list[BaseMirrorMap], eps: float = 1e-16) -> None:
         self.eps = float(eps)
         self.components_ = self._flatten(components)
 
@@ -1109,11 +1156,13 @@ class CompositeMirrorMap(DynamicMirrorMap):
         return CompositeMirrorMap(new_comps, eps=self.eps)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         for c in self.components_:
             if isinstance(c, DynamicMirrorMap):
                 c.ensure_dim(d)
 
     def update_state(self, g: np.ndarray) -> None:
+        """Update the adaptive potential with the newly observed vector."""
         for c in self.components_:
             if isinstance(c, DynamicMirrorMap):
                 c.update_state(g)
@@ -1295,17 +1344,19 @@ class AdaBarronsBarrierMap(DynamicMirrorMap):
 
     def __init__(
         self, barrier_coef: float = 1.0, alpha: float = 1.0, eps: float = 1e-16
-    ):
+    ) -> None:
         self.barrier_coef = float(barrier_coef)
         self.alpha = float(alpha)
         self.eps = float(eps)
         self._proximity_sum = np.array([], dtype=float)
 
-    def _ensure(self, d: int):
+    def _ensure(self, d: int) -> None:
+        """Allocate numerical state when the asset dimension is first known."""
         if self._proximity_sum.size == 0:
             self._proximity_sum = np.zeros(d, dtype=float)
 
     def ensure_dim(self, d: int) -> None:
+        """Initialize numerical state for the specified asset dimension."""
         self._ensure(d)
 
     def update_state(self, w: np.ndarray) -> None:
