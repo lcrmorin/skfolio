@@ -805,7 +805,7 @@ class FollowTheWinner(BaseOnlineOptimization):
             Effective price relatives used for loss computation.
         """
         # Compute loss for inspection (optional, can be simplified)
-        final_return = np.dot(self.weights_, effective_relatives)
+        final_return = np.dot(self._last_trade_weights_, effective_relatives)
         self.loss_ = -np.log(np.maximum(final_return, CLIP_EPSILON))
         self.cumulative_loss_ += self.loss_
         # Note: previous_weights assignment is handled after wealth update to ensure
