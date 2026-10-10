@@ -1,3 +1,14 @@
+Latest refresh: 2026-10-10
+==========================
+
+The branch now includes upstream main at 33923e0 (v1.8.0). The refreshed full suite
+passes 10790 tests, with 1 skipped and 1 expected failure. Ruff and formatting pass.
+The latest ty check has one independently verified upstream AssetPanel diagnostic.
+See REFRESH_2026_10_10.rst for the full record and reproduction commands.
+
+The October 3 results below are historical and do not describe the latest checker
+status or current upstream baseline.
+
 Local integration validation (2026-10-03)
 =======================================
 

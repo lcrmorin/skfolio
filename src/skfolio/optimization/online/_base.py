@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 import warnings
-from collections.abc import Iterator
+from collections.abc import Generator
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import replace
@@ -349,7 +349,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         return self
 
     @contextmanager
-    def _warmup_context(self) -> Iterator[None]:
+    def _warmup_context(self) -> Generator[None, None, None]:
         """Mark historical rows as learning-only until the final entry decision."""
         old = getattr(self, "_in_warmup", False)
         self._in_warmup = True
@@ -405,28 +405,20 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         n_assets: int,
         fill_value: float,
         name: str,
+        *,
+        apply_investable_mask: bool = True,
     ) -> float | np.ndarray:
-        """Convert input to cleaned float or ndarray."""
-        if value is None:
-            return fill_value
-        if np.isscalar(value):
-            v = float(np.asarray(value))
-            if name == "management_fees" and v >= 1.0:
-                raise ValueError("management_fees must be < 1.0 per period")
-            return v
-        arr = input_to_array(
-            items=value,
-            n_assets=n_assets,
-            fill_value=fill_value,
-            dim=1,
-            assets_names=(
-                self.feature_names_in_ if hasattr(self, "feature_names_in_") else None
-            ),
-            name=name,
+        """Use common asset alignment and validate per-period management fees."""
+        cleaned = super()._clean_input(
+            value,
+            n_assets,
+            fill_value,
+            name,
+            apply_investable_mask=apply_investable_mask,
         )
-        if name == "management_fees" and np.any(np.asarray(arr, dtype=float) >= 1.0):
+        if name == "management_fees" and np.any(np.asarray(cleaned) >= 1.0):
             raise ValueError("All management_fees values must be < 1.0 per period")
-        return arr
+        return cleaned
 
     def _initialize_for_evaluation(self, X: npt.ArrayLike) -> None:
         """Initialize before the first return without consuming that observation."""

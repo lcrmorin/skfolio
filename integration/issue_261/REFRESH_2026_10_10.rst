@@ -1,0 +1,69 @@
+Upstream refresh validation (2026-10-10)
+========================================
+
+Baseline and scope
+------------------
+
+* Upstream: skfolio/skfolio main at 33923e0, tagged v1.8.0.
+* Integrated 19 upstream commits since the original base 5b657bd.
+* Previous integration head: fa28bf9. Recovery branch:
+  codex/261-carlo-before-refresh-20261010.
+* Merged upstream while retaining the existing local integration commits.
+* No textual merge conflicts. Nothing pushed or published.
+
+Compatibility changes
+---------------------
+
+Upstream BaseOptimization._clean_previous_weights now passes apply_investable_mask
+to _clean_input. The online override previously rejected that keyword. It now
+accepts the shared signature, delegates alignment to BaseOptimization, and retains
+its per-period management-fee validation. The existing execution and named-input
+regressions exercise this call path.
+
+The warmup context-manager annotation uses Generator, as required by the latest
+checker. No runtime behavior changes accompany that annotation fix.
+
+The extracted upstream methods _weight_and_exposure_constraints,
+_budget_constraints and _linear_constraints were compared structurally against the
+previous upstream baseline and are unchanged. Their extracted shared implementations
+remain in use. Upstream's broader fallback additions do not replace this draft's
+reset-required policy after a partial learning failure.
+
+Validation
+----------
+
+* Full repository suite: 10790 passed, 1 skipped, 1 existing expected failure,
+  1116 warnings, in 176 seconds with two workers.
+* Targeted execution, input-policy and causal-prior suite: 48 passed.
+* Runnable online EG example: both variants produce 50 evaluation periods.
+* Execution-contract probe: passes and its JSON result is unchanged.
+* Ruff 0.17.0: repository check and formatting pass (599 files).
+* Numpydoc: affected online base, convex base and shared constraints pass.
+* git diff --check: passes.
+
+Full-suite command:
+
+.. code-block:: console
+
+    PYTHONPATH=src:/private/tmp/skfolio-carlo-refresh-deps \
+      /Users/lucasmorin/skfolio/.venv/bin/python -m pytest \
+      -q -n 2 --dist loadfile --import-mode=importlib -o addopts='' tests
+
+The previous temporary autograd installation had lost source files. Autograd 1.9.1
+was reinstalled without dependencies under /private/tmp/skfolio-carlo-refresh-deps.
+The final full run above includes the online gradient-verification tests; the initial
+run with the incomplete dependency is not counted as successful validation.
+
+Known upstream typing issue
+---------------------------
+
+The full ty 0.0.86 check reports one error:
+
+* src/skfolio/containers/_asset_panel/_view.py:233,
+  invalid-property-type-override: read-only fields overrides a writable attribute.
+
+The identical single diagnostic was reproduced on an independent clean archive of
+upstream/main at 33923e0, using the same checker and Python environment. There are
+no additional integration diagnostics after the context-manager annotation fix.
+This is a baseline issue, not a clean full-source type-check result. The unrelated
+AssetPanel contract was not changed as part of the online refresh.

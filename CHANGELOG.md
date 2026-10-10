@@ -2,6 +2,102 @@
 
 <!-- version list -->
 
+## v1.8.0 (2026-10-09)
+
+### Features
+
+- Extend sample-weight support across risk measures
+  ([#412](https://github.com/skfolio/skfolio/pull/412),
+  [`a75fb77`](https://github.com/skfolio/skfolio/commit/a75fb772b57ec1fc2034c75d38d0af1ae5a348b4))
+
+
+## v1.7.1 (2026-10-08)
+
+### Bug Fixes
+
+- Correct weighted downside risk and prevent VaR from skipping rare losses
+  ([#410](https://github.com/skfolio/skfolio/pull/410),
+  [`ec062b6`](https://github.com/skfolio/skfolio/commit/ec062b63305a207f5dd2d821fe83eab54bde6f46))
+
+- **portfolio**: Correct weighted rolling measures and NaN handling
+  ([#404](https://github.com/skfolio/skfolio/pull/404),
+  [`40091bb`](https://github.com/skfolio/skfolio/commit/40091bbd08c13d4c0ea7d52a6e7087285b971229))
+
+### Documentation
+
+- Update parameter grids in the HRP vs HERC tutorial
+  ([#408](https://github.com/skfolio/skfolio/pull/408),
+  [`0d7c8f4`](https://github.com/skfolio/skfolio/commit/0d7c8f404459aad7bc700c422afae51ff5d7ac2f))
+
+
+## v1.7.0 (2026-10-07)
+
+### Features
+
+- **optimization**: Support online learning for HRP and Schur Complementary
+  ([#342](https://github.com/skfolio/skfolio/pull/342),
+  [`21e68be`](https://github.com/skfolio/skfolio/commit/21e68beda7d1f11914d333c9aec3478227dd947e))
+
+### Additional Release Information
+
+- **optimization**: HRP, HERC and Schur no longer inherit from BaseHierarchicalOptimization.
+  Existing custom subclasses remain supported through the deprecation period. Legacy public imports
+  and the HRP/Schur hierarchical_clustering_estimator parameter are deprecated for removal in 2.0.
+
+- CovarianceDistance rejects invalid covariance matrices.
+
+
+## v1.6.0 (2026-10-07)
+
+### Features
+
+- **seriation**: Add hierarchical and spectral seriation estimators
+  ([#407](https://github.com/skfolio/skfolio/pull/407),
+  [`3eeb7dc`](https://github.com/skfolio/skfolio/commit/3eeb7dc845d5af7c60103c17c0603ddb85d65562))
+
+
+## v1.5.0 (2026-10-07)
+
+### Features
+
+- **optimization**: Unify failure handling and fallback behavior
+  ([#406](https://github.com/skfolio/skfolio/pull/406),
+  [`3322df2`](https://github.com/skfolio/skfolio/commit/3322df27595590c6acec5d3f7cf6500e6dff296d))
+
+
+## v1.4.12 (2026-10-06)
+
+### Bug Fixes
+
+- **optimization**: Improve Schur gamma search accuracy and robustness
+  ([#405](https://github.com/skfolio/skfolio/pull/405),
+  [`99fa21e`](https://github.com/skfolio/skfolio/commit/99fa21ed764ccc6d252d461a7e8e43a5864fdb8f))
+
+
+## v1.4.11 (2026-10-03)
+
+### Bug Fixes
+
+- **optimization**: Correct BenchmarkTracker partial_fit
+  ([`918d77b`](https://github.com/skfolio/skfolio/commit/918d77b51dcb5debe0a639818d462cb1c5042420))
+
+- **optimization**: Correct MaximumDiversification partial_fit
+  ([`0e64bef`](https://github.com/skfolio/skfolio/commit/0e64bef929e7848a19bd831e57b7a1cb324efac8))
+
+- **optimization**: Prevent duplicate fallbacks in nested fit calls
+  ([`acd204d`](https://github.com/skfolio/skfolio/commit/acd204dca6315a9df2ed24227c1b140a81e37c19))
+
+### Continuous Integration
+
+- Enforce type checking with ty ([#364](https://github.com/skfolio/skfolio/pull/364),
+  [`5b657bd`](https://github.com/skfolio/skfolio/commit/5b657bda012deb44dedaaf1880fa2e69eb7cba1d))
+
+### Documentation
+
+- **optimization**: Clarify online failure handling and restarts
+  ([`d62d5a8`](https://github.com/skfolio/skfolio/commit/d62d5a82897ee54b063e78f7ed8f22efe552cc0c))
+
+
 ## v1.4.10 (2026-09-30)
 
 ### Bug Fixes

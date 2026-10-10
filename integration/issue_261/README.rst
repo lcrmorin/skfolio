@@ -7,7 +7,7 @@ It ports Carlo's shared machinery instead of recreating standalone algorithms.
 Provenance
 ----------
 
-* Current-main integration base: skfolio/skfolio at 5b657bd.
+* Original integration base: skfolio/skfolio at 5b657bd.
 * Carlo source: universal_portfolio at c1bd1f168cf7d660c81f74710aadd9941e64a2c7.
 * Original history is preserved on codex/261-carlo-source.
 * Attributed baseline import: 3c4cce7. Original headers and numerical tests remain.
@@ -114,3 +114,20 @@ until fit resets the stream. Numerical or prior failures require fit before reus
 there is no automatic rollback or fallback. Bigger execution windows and constrained
 streaming blocks remain outside the supported contract. The public family API has
 not been redesigned.
+
+Upstream refresh (2026-10-10)
+-----------------------------
+
+Merged upstream main at 33923e0 (v1.8.0), preserving the local integration commits.
+The pre-refresh state remains on codex/261-carlo-before-refresh-20261010 at fa28bf9.
+The merge includes 19 upstream commits, including allocation failure handling,
+weighted risk measures and online hierarchical optimization.
+
+The online input-cleaning override now delegates asset alignment to BaseOptimization
+and accepts its new apply_investable_mask option. The management-fee guard remains.
+The shared weight/exposure, budget and named linear expressions were unchanged in
+upstream and remain shared through our extracted helpers. The prior/learning failure
+policy remains reset-required; this refresh does not introduce online fallback.
+
+See REFRESH_2026_10_10.rst for validation and the independently confirmed upstream
+type-check diagnostic. Nothing was pushed or published as part of this refresh.
