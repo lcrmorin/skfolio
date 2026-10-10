@@ -55,6 +55,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         *,
         warm_start: bool = True,
         store_weights: bool = True,
+        recovery: str = "raise",
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: skt.MultiInput | None = None,
@@ -84,6 +85,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             raise_on_failure=raise_on_failure,
         )
         self.warm_start = warm_start
+        self.recovery = recovery
         self.store_weights = store_weights
         self.initial_weights = initial_weights
         self.initial_wealth = initial_wealth
@@ -207,6 +209,68 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         sample_weight: npt.ArrayLike | None = None,
         **fit_params: Any,
     ) -> BaseOnlineOptimization:
+        """Update causally, optionally restoring all learning state after failure.
+
+        ``recovery='rollback'`` restores the complete pre-call state and raises the
+        original exception. Retry the entire block after correcting its cause.
+        ``recovery='previous_weights'`` additionally returns supplied holdings after
+        an allocation failure on an initialized stream. The rejected block is not
+        learned; inspect ``last_update_consumed_`` and ``recovery_error_``. Prior and
+        validation errors always raise. The default retains reset-required failures.
+        """
+        self._validate_params()
+        if self.recovery == "raise":
+            return self._partial_fit(X, y, sample_weight, **fit_params)
+        parameters = self.get_params(deep=False)
+        state = deepcopy(
+            {key: value for key, value in vars(self).items() if key not in parameters}
+        )
+        self._failure_stage = None
+        try:
+            self._partial_fit(X, y, sample_weight, **fit_params)
+        except Exception as error:
+            stage = self._failure_stage
+            self.__dict__.clear()
+            self.__dict__.update(parameters)
+            self.__dict__.update(state)
+            self.last_update_consumed_ = False
+            self.recovery_error_ = str(error)
+            self.n_recoveries_ = getattr(self, "n_recoveries_", 0) + 1
+            if (
+                self.recovery != "previous_weights"
+                or stage != "algorithm"
+                or not self._is_initialized
+                or self.previous_weights is None
+            ):
+                raise
+            # Holdings are execution state, not a projected replacement target.
+            # Keeping them intentionally makes no new trade during recovery.
+            holdings = self._clean_previous_weights(self.n_features_in_)
+            if not np.isfinite(holdings).all():
+                raise ValueError("Recovery requires finite previous_weights") from error
+            self.weights_ = holdings.copy()
+            self._synchronize_target()
+            self.fallback_ = "previous_weights"
+            warnings.warn(
+                "Online allocation failed; restored learning state and retained "
+                "previous_weights. The rejected block was not learned. "
+                f"Original error: {error}",
+                UserWarning,
+                stacklevel=2,
+            )
+            return self
+        self.last_update_consumed_ = True
+        self.recovery_error_ = None
+        self.fallback_ = None
+        return self
+
+    def _partial_fit(
+        self,
+        X: npt.ArrayLike,
+        y: npt.ArrayLike | None = None,
+        sample_weight: npt.ArrayLike | None = None,
+        **fit_params: Any,
+    ) -> BaseOnlineOptimization:
         """Continue learning from one observation or a causal block of net returns.
 
         The target after observing row t is intended for period t+1. Validation
@@ -305,6 +369,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                     raise ValueError(
                         "max_turnover requires explicit previous_weights holdings"
                     )
+                self._failure_stage = "prior"
                 if self.prior_estimator is not None:
                     if not self._is_initialized:
                         self._initialize_algorithm(returns.shape[1])
@@ -321,6 +386,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
                         None if y is None else safe_indexing(y, row_slice),
                         extra_params=metadata,
                     )
+                self._failure_stage = "algorithm"
                 self._update_one(row)
                 if (
                     np.shape(self.weights_) != (returns.shape[1],)

@@ -8,7 +8,7 @@ from enum import auto
 from numbers import Real
 from typing import ClassVar
 
-from sklearn.utils._param_validation import Interval
+from sklearn.utils._param_validation import Interval, StrOptions
 
 from skfolio.prior import BasePrior
 from skfolio.utils.tools import AutoEnum
@@ -95,6 +95,7 @@ class OnlineParameterConstraintsMixin:
     _parameter_constraints: ClassVar[dict] = {
         "warm_start": ["boolean"],
         "store_weights": ["boolean"],
+        "recovery": [StrOptions({"raise", "rollback", "previous_weights"})],
         "initial_weights": ["array-like", None],
         # initial_wealth accepts: scalar float > 0, array of floats summing > 0, or None
         "initial_wealth": [

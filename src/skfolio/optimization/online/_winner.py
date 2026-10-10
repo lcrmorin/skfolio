@@ -121,6 +121,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         update_mode: Literal["ftrl", "omd"] = "ftrl",
         warm_start: bool = True,
         store_weights: bool = True,
+        recovery: str = "raise",
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: skt.MultiInput | None = None,
@@ -399,6 +400,7 @@ class FollowTheWinner(BaseOnlineOptimization):
         super().__init__(
             warm_start=warm_start,
             store_weights=store_weights,
+            recovery=recovery,
             initial_weights=initial_weights,
             initial_wealth=initial_wealth,
             previous_weights=previous_weights,
