@@ -15,7 +15,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, online-integration-ci]
   pull_request:
     branches: [main]
 
