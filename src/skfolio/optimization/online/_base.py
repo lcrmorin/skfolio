@@ -15,9 +15,10 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+import pandas as pd
 import sklearn.utils.metadata_routing as skm
 from sklearn.base import check_is_fitted, clone
-from sklearn.utils.validation import _check_sample_weight, validate_data
+from sklearn.utils.validation import _check_sample_weight, check_array, validate_data
 
 import skfolio.typing as skt
 from skfolio.optimization._base import BaseOptimization, _has_transaction_cost
@@ -56,6 +57,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         warm_start: bool = True,
         store_weights: bool = True,
         recovery: str = "raise",
+        universe_policy: str = "strict",
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: skt.MultiInput | None = None,
@@ -86,6 +88,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         )
         self.warm_start = warm_start
         self.recovery = recovery
+        self.universe_policy = universe_policy
         self.store_weights = store_weights
         self.initial_weights = initial_weights
         self.initial_wealth = initial_wealth
@@ -112,6 +115,75 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         self._projector: AutoProjector | None = None
         self._t: int = 0
         self._previous_target_: np.ndarray | None = None
+
+    def _align_universe(self, X: npt.ArrayLike) -> npt.ArrayLike:
+        """Align named observations or restart a changed universe explicitly."""
+        if self.universe_policy == "strict":
+            return X
+        if not isinstance(X, pd.DataFrame) or not all(
+            isinstance(c, str) for c in X.columns
+        ):
+            raise ValueError(
+                "universe_policy='restart' requires named DataFrame columns"
+            )
+        names = list(X.columns)
+        if len(set(names)) != len(names):
+            raise ValueError("Asset names must be unique")
+        old = getattr(self, "feature_names_in_", None)
+        if old is None:
+            return X
+        if set(names) == set(old):
+            return X.loc[:, old]
+        values = np.asarray(X, dtype=float)
+        if (
+            values.ndim != 2
+            or not values.size
+            or not np.isfinite(values).all()
+            or np.any(values <= -1)
+        ):
+            raise ValueError("New-universe returns must be finite and greater than -1")
+        for name in (
+            "initial_weights",
+            "initial_wealth",
+            "min_weights",
+            "max_weights",
+            "transaction_costs",
+            "management_fees",
+            "groups",
+            "adagrad_D",
+        ):
+            value = getattr(self, name, None)
+            if value is not None and not isinstance(value, dict) and np.ndim(value) > 0:
+                raise ValueError(f"Universe changes require scalar or named {name}")
+        for name in ("covariance", "X_tracking", "left_inequality"):
+            if getattr(self, name) is not None:
+                raise ValueError(f"Universe changes cannot realign positional {name}")
+        if self.previous_weights is not None and not isinstance(
+            self.previous_weights, dict
+        ):
+            raise ValueError("Universe changes require named previous_weights")
+        restarts = getattr(self, "n_universe_restarts_", 0) + 1
+        previous = old.copy()
+        self._reset_state_for_fit()
+        self.n_universe_restarts_ = restarts
+        self.previous_universe_ = previous
+        return X
+
+    def _turnover_budget(self) -> float | None:
+        """Reserve turnover for liquidating assets outside the current universe."""
+        cap = self.max_turnover
+        if cap is not None and isinstance(self.previous_weights, dict):
+            names = set(getattr(self, "feature_names_in_", []))
+            removed = np.asarray(
+                [v for k, v in self.previous_weights.items() if k not in names],
+                dtype=float,
+            )
+            if not np.isfinite(removed).all():
+                raise ValueError("Removed holdings must be finite")
+            cap -= float(np.abs(removed).sum())
+            if cap < 0:
+                raise ValueError("Liquidating removed assets exceeds max_turnover")
+        return cap
 
     def _initialize_projector(self) -> AutoProjector:
         """Build the projector from aligned constraints and available causal estimates."""
@@ -226,6 +298,11 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             {key: value for key, value in vars(self).items() if key not in parameters}
         )
         self._failure_stage = None
+        universe_changed = (
+            isinstance(X, pd.DataFrame)
+            and hasattr(self, "feature_names_in_")
+            and set(X.columns) != set(self.feature_names_in_)
+        )
         try:
             self._partial_fit(X, y, sample_weight, **fit_params)
         except Exception as error:
@@ -238,6 +315,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             self.n_recoveries_ = getattr(self, "n_recoveries_", 0) + 1
             if (
                 self.recovery != "previous_weights"
+                or universe_changed
                 or stage != "algorithm"
                 or not self._is_initialized
                 or self.previous_weights is None
@@ -307,10 +385,8 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             X = np.asarray(X)
             if X.ndim == 1:
                 X = X.reshape(1, -1)
-        returns = validate_data(
-            self,
-            X=X,
-            reset=not self._is_initialized,
+        returns = check_array(
+            X,
             dtype=float,
             ensure_2d=True,
             accept_sparse=False,
@@ -345,12 +421,21 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             )
         if self.prior_estimator is not None:
             _check_method_params(returns, routed.prior_estimator.partial_fit)
+        X = self._align_universe(X)
+        returns = validate_data(
+            self,
+            X=X,
+            reset=not self._is_initialized,
+            dtype=float,
+            ensure_2d=True,
+            accept_sparse=False,
+        )
         target_list = []
         try:
             for i, row in enumerate(net_to_relatives(returns)):
                 decision = not warmup or i == len(returns) - 1
                 self._prior_warmup = not decision
-                self._decision_turnover = self.max_turnover if decision else None
+                self._decision_turnover = self._turnover_budget() if decision else None
                 self._execution_anchor = (
                     None
                     if not decision or self.previous_weights is None
@@ -490,7 +575,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         """Initialize before the first return without consuming that observation."""
         self._validate_params()
         data = validate_data(self, X, reset=True, dtype=float)
-        self._decision_turnover = self.max_turnover
+        self._decision_turnover = self._turnover_budget()
         self._execution_anchor = (
             None
             if self.previous_weights is None

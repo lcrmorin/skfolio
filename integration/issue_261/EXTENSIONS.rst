@@ -17,7 +17,9 @@ With previous_weights, allocation failures on an initialized stream additionally
 return the explicitly supplied execution holdings. The fallback makes no new trade
 and does not project holdings into the failed feasible set. Input and prior failures
 still raise. An uninitialized estimator or missing/invalid holdings cannot use this
-fallback. Continuing evaluation supplies new observations; rejected observations are
+fallback. A failed membership change also raises after restoring the old universe,
+since its holdings cannot be returned as targets for a different asset list.
+Continuing evaluation supplies new observations; rejected observations are
 not automatically replayed.
 
 Diagnostics are last_update_consumed_, recovery_error_, n_recoveries_ and fallback_.
@@ -30,3 +32,23 @@ inside user-provided estimators.
 Validation: injected post-update failures verify that both estimator families restore
 priors, targets, numerical state and complete blocks; corrected retries agree with
 uninterrupted reference runs. Holdings fallback and input-error rejection are tested.
+
+Named universe changes
+----------------------
+
+``universe_policy="restart"`` accepts DataFrame observations with unique string
+asset names. Reordering columns preserves learning state. Membership changes
+restart the kernel, predictor and optional prior; weights and observation history
+then describe the current universe only. ``n_universe_restarts_`` and
+``previous_universe_`` report transitions. Defaults remain strict.
+
+Use scalar or named constraints and named execution holdings. Positional asset
+parameters and matrices cannot be safely remapped and are rejected on a membership
+change. Liquidated holdings outside the new universe consume the turnover budget;
+Portfolio accounts for their transaction costs. Use ``recovery="rollback"`` to
+restore the old universe if the new allocation fails. A restarted covariance prior
+may need a new historical warmup before it can supply a finite risk estimate.
+
+This supports explicit universe changes between calls. It does not infer membership
+from missing returns or AssetPanel masks, nor transport adaptive matrices or prior
+statistics between universes.

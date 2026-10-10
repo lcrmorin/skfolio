@@ -187,6 +187,16 @@ class FollowTheLoser(BaseOnlineOptimization):
     initial_weights : array-like of shape (n_assets,) | None, default=None
         Initial portfolio weights. If None, uses uniform weights (1/n_assets).
 
+    recovery : {"raise", "rollback", "previous_weights"}, default="raise"
+        Failure policy. Rollback restores the full pre-call learning state and
+        raises. Previous-weights recovery additionally holds supplied execution
+        holdings after an allocation failure; the failed block is not learned.
+
+    universe_policy : {"strict", "restart"}, default="strict"
+        Restart accepts named DataFrames, aligns reordered columns, and resets
+        kernels and priors on membership changes. Asset parameters must be scalar
+        or named; positional matrices cannot be remapped.
+
     store_weights : bool, default=True
         Record diagnostic algorithm targets in ``all_weights_``. Set False for
         bounded-memory streaming. These targets do not imply executed trades.
@@ -335,6 +345,7 @@ class FollowTheLoser(BaseOnlineOptimization):
         warm_start: bool = True,
         store_weights: bool = True,
         recovery: str = "raise",
+        universe_policy: str = "strict",
         initial_weights: npt.ArrayLike | None = None,
         initial_wealth: float | npt.ArrayLike | None = None,
         previous_weights: npt.ArrayLike | None = None,
@@ -360,6 +371,7 @@ class FollowTheLoser(BaseOnlineOptimization):
             warm_start=warm_start,
             store_weights=store_weights,
             recovery=recovery,
+            universe_policy=universe_policy,
             initial_weights=initial_weights,
             initial_wealth=initial_wealth,
             previous_weights=previous_weights,

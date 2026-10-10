@@ -95,6 +95,7 @@ class OnlineParameterConstraintsMixin:
     _parameter_constraints: ClassVar[dict] = {
         "warm_start": ["boolean"],
         "store_weights": ["boolean"],
+        "universe_policy": [StrOptions({"strict", "restart"})],
         "recovery": [StrOptions({"raise", "rollback", "previous_weights"})],
         "initial_weights": ["array-like", None],
         # initial_wealth accepts: scalar float > 0, array of floats summing > 0, or None
