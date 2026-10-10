@@ -650,6 +650,7 @@ TUTORIAL_ORDER = {
         "plot_1_online_covariance_forecast_evaluation.py",
         "plot_2_online_hyperparameter_tuning.py",
         "plot_3_online_portfolio_optimization_evaluation.py",
+        "plot_4_online_exponentiated_gradient.py",
         "plot_online_schur_changing_universe.py",
     ),
     "pre_selection": (

@@ -212,10 +212,11 @@ def test_auto_scale_parameter():
     assert lr_emp(0) > lr_theory(0)
 
 
-def test_unknown_strategy_raises():
+@pytest.mark.parametrize("strategy", ["unknown_strategy", None, 1])
+def test_unknown_strategy_raises(strategy):
     """Test unknown strategy raises ValueError."""
     with pytest.raises(ValueError, match="Unknown strategy"):
-        get_auto_learning_rate("unknown_strategy", n_assets=10)
+        get_auto_learning_rate(strategy, n_assets=10)
 
 
 def test_t_zero_safe():
@@ -275,3 +276,10 @@ def test_eg_empirical_rate_no_warning():
     eta_emp = eta_fn(99)
     eta_theory = np.sqrt(np.log(10) / 100)
     np.testing.assert_allclose(eta_emp, eta_theory * np.sqrt(2), rtol=1e-10)
+
+
+def test_string_strategy_matches_enum():
+    """String strategies have the same semantics across supported Python versions."""
+    expected = get_auto_learning_rate(FTWStrategy.EG, n_assets=10)
+    actual = get_auto_learning_rate("eg", n_assets=10)
+    assert actual(5) == expected(5)

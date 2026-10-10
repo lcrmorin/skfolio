@@ -474,8 +474,9 @@ class BurgMirrorMap(BaseMirrorMap):
     >>> g_t = np.array([0.1, -0.1])
     >>> eta = 0.1
     >>> w_next, lam = mirror.constrained_inverse(w_t, eta, g_t)
-    >>> print(f"Updated weights: {w_next}")
-    >>> print(f"Lagrange multiplier λ: {lam:.6f}")
+    >>> np.testing.assert_allclose(w_next.sum(), 1.0)
+    >>> assert np.all(w_next > 0)
+    >>> np.testing.assert_allclose(1 / w_next, 1 / w_t + eta * (g_t - lam))
     """
 
     def __init__(
@@ -586,14 +587,18 @@ class BurgMirrorMap(BaseMirrorMap):
         -----
         - Requires w strictly positive (interior of simplex)
         - Robust for small-to-moderate eta (< 0.5 recommended)
-        - Uses secant method via scipy.optimize.newton for fast convergence
+        - Uses bracketed root finding via scipy.optimize.brentq
 
         Examples
         --------
+        >>> import numpy as np
+        >>> from skfolio.optimization.online._mirror_maps import BurgMirrorMap
+        >>> mirror = BurgMirrorMap()
         >>> w = np.array([0.5, 0.5])
         >>> g = np.array([0.2, -0.1])
         >>> eta = 0.1
         >>> w_new, lam = mirror.constrained_inverse(w, eta, g)
+        >>> np.testing.assert_allclose(w_new.sum(), 1.0)
         """
         from scipy.optimize import brentq
 

@@ -100,7 +100,8 @@ def test_bcrp_risk_measures(objective_measure, X_small):
     bcrp.fit(X_small)
 
     assert np.sum(bcrp.weights_) == pytest.approx(1.0)
-    assert np.all(bcrp.weights_ >= 0)
+    # Conic solvers satisfy bounds to numerical tolerance, not exact arithmetic.
+    assert np.all(bcrp.weights_ >= -1e-8)
 
 
 def test_bcrp_rejects_invalid_measure(X_small):

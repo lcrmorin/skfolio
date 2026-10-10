@@ -426,8 +426,10 @@ def get_auto_learning_rate(
     ValueError
         If strategy is unknown or objective cannot be estimated.
     """
-    if strategy not in FTWStrategy:
-        raise ValueError(f"Unknown strategy {strategy}")
+    try:
+        strategy = FTWStrategy(strategy)
+    except (ValueError, TypeError) as error:
+        raise ValueError(f"Unknown strategy {strategy}") from error
 
     objective = objective or PerfMeasure.LOG_WEALTH
 
