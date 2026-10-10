@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Generator
-from contextlib import contextmanager
+from contextlib import AbstractContextManager, contextmanager
 from copy import deepcopy
 from dataclasses import replace
 from typing import Any
@@ -272,7 +272,7 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
         """
         return gross_relatives - getattr(self, "_management_fees_arr", 0.0)
 
-    _requires_single_period_evaluation = True
+    _requires_contiguous_evaluation = True
 
     def partial_fit(
         self,
@@ -508,6 +508,10 @@ class BaseOnlineOptimization(BaseOptimization, OnlineParameterConstraintsMixin):
             yield
         finally:
             self._in_warmup = old
+
+    def _evaluation_update_context(self) -> AbstractContextManager[None]:
+        """Learn a completed window before its single next execution decision."""
+        return self._warmup_context()
 
     def get_metadata_routing(self) -> skm.MetadataRouter:
         """Route both entry points to the prior's incremental update method."""

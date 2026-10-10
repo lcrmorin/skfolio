@@ -105,8 +105,6 @@ def test_online_predict_uses_targets_before_observations(estimator, returns):
         expected.append(row @ manual.weights_)
         manual.partial_fit(row)
     assert_allclose(prediction.returns, expected, atol=1e-12)
-    with pytest.raises(ValueError, match="test_size=1"):
-        online_predict(estimator, returns, warmup_size=5, test_size=2)
 
 
 def test_reset_recreates_objective(returns):

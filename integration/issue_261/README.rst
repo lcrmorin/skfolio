@@ -131,3 +131,9 @@ policy remains reset-required; this refresh does not introduce online fallback.
 
 See REFRESH_2026_10_10.rst for validation and the independently confirmed upstream
 type-check diagnostic. Nothing was pushed or published as part of this refresh.
+
+Additional local features
+-------------------------
+
+See EXTENSIONS.rst for named-universe restarts, transactional recovery and
+multi-period evaluation windows, including their opt-in APIs, tests and limits.

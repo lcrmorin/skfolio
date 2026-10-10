@@ -76,6 +76,7 @@ Review limits
 -------------
 
 This remains a local discussion integration. Passing the suite does not imply that
-arbitrary adaptive mirror geometries, dynamic universes, transaction rollback,
-online fallback or larger execution windows are implemented. See REVIEW_PLAN.rst
+arbitrary adaptive mirror geometries, adaptive-state transport across universes,
+or missing/bankrupt return handling are implemented. Named universe restarts,
+transactional recovery and larger windows are described in EXTENSIONS.rst. See REVIEW_PLAN.rst
 for explicit boundaries and proposed review splits. No PR or comment was published.

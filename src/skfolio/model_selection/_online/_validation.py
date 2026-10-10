@@ -624,12 +624,15 @@ def _online_walk_forward(
             f"purged_size={purged_size}."
         )
 
-    if getattr(estimator, "_requires_single_period_evaluation", False) and purged_size:
+    contiguous = getattr(
+        estimator, "_requires_contiguous_evaluation", False
+    ) or getattr(estimator, "_requires_single_period_evaluation", False)
+    if contiguous and purged_size:
         raise ValueError(
             "Online portfolio selection does not support purged execution gaps"
         )
 
-    if getattr(estimator, "_requires_single_period_evaluation", False):
+    if contiguous:
         expected_start = int(splits[0][0][-1]) + 1
         for train, test in splits:
             if int(test[0]) != expected_start or int(train[-1]) + 1 != expected_start:
@@ -653,6 +656,7 @@ def _online_walk_forward(
             method="partial_fit",
         )
 
+    update_context = getattr(estimator, "_evaluation_update_context", nullcontext)
     last_train_end = warmup_slice.stop
     last_test_slice = None
 
@@ -660,14 +664,15 @@ def _online_walk_forward(
         train_end = int(train_idx[-1]) + 1
 
         if train_end > last_train_end:
-            fit_single_estimator(
-                estimator,
-                X,
-                y,
-                fit_params=routed_params.estimator_params,
-                indices=slice(last_train_end, train_end),
-                method="partial_fit",
-            )
+            with update_context():
+                fit_single_estimator(
+                    estimator,
+                    X,
+                    y,
+                    fit_params=routed_params.estimator_params,
+                    indices=slice(last_train_end, train_end),
+                    method="partial_fit",
+                )
             last_train_end = train_end
 
         last_test_slice = slice(int(test_idx[0]), int(test_idx[-1]) + 1)
@@ -675,14 +680,15 @@ def _online_walk_forward(
 
     if refit_last and last_test_slice is not None:
         if last_test_slice.stop > last_train_end:
-            fit_single_estimator(
-                estimator,
-                X,
-                y,
-                fit_params=routed_params.estimator_params,
-                indices=slice(last_train_end, last_test_slice.stop),
-                method="partial_fit",
-            )
+            with update_context():
+                fit_single_estimator(
+                    estimator,
+                    X,
+                    y,
+                    fit_params=routed_params.estimator_params,
+                    indices=slice(last_train_end, last_test_slice.stop),
+                    method="partial_fit",
+                )
 
 
 def _online_predict(

@@ -43,11 +43,12 @@ Still to decide or implement
 * Concrete public estimators versus family/alias APIs (deliberately unchanged).
 * Native constrained projections for arbitrary adaptive/composite mirror geometries,
   further risk expressions, factor constraints and mixed-integer constraints.
-* Dynamic asset universes and investability masks; policies for missing returns and
-  bankrupt assets rather than merely rejecting unsupported input.
-* Atomic rollback or online fallback when either the prior or numerical kernel fails.
-  Current behavior is explicit reset-required failure, not transactional recovery.
-* Row-aligned execution anchors for constrained blocks and larger evaluation windows.
+* Transporting learned state across universes and investability masks; policies
+  for missing returns and bankrupt assets. Named changes currently restart learning.
+* Retrying or replaying rejected observations automatically, and recovery of external
+  effects in custom estimators. Current recovery restores state or holds holdings.
+* Row-aligned execution anchors for arbitrary direct streaming blocks. Contiguous
+  larger evaluation windows now execute one allocation per window.
 * Migration/removal of compatibility names and legacy benchmark accounting helpers.
 
 Draft discussion message
@@ -64,4 +65,7 @@ existing family interface while we discuss public estimator naming.
 
 I suggest reviewing the shared constraint extraction first, then the online lifecycle
 and execution contract, and finally optional priors. Broader adaptive geometries,
-dynamic universes, automatic recovery and larger execution windows remain follow-ups.
+state transport between universes and missing/bankrupt returns remain follow-ups.
+Three local extensions now add named-universe restarts, transactional rollback and
+holdings fallback, and contiguous larger evaluation windows. See EXTENSIONS.rst
+for their contracts and limitations.

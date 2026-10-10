@@ -1218,17 +1218,31 @@ not constrain the historical target; a finite covariance is mandatory before an
 execution decision. The explicit initial allocation precedes statistical learning.
 Covariance and ``prior_estimator`` cannot both be supplied.
 
-Use ``model_selection.online_predict(..., test_size=1)`` for execution evaluation,
-with ``portfolio_params={"weight_drift": True}`` for drifted holdings. Direct
-streaming callers supply ``previous_weights`` at every rebalance. Learning blocks
-with turnover limits or transaction costs are supported only during warmup.
+Use ``model_selection.online_predict`` for execution evaluation. ``test_size``
+sets the number of periods between allocation decisions. A completed window is
+learned row by row before the next allocation; intermediate algorithm targets are
+not executed. With ``portfolio_params={"weight_drift": True}``, holdings drift
+within the window and its ending holdings anchor the next turnover constraint.
+Without drift, Portfolio retains its constant-weight return convention.
+Purged execution gaps remain unsupported. Direct streaming callers supply
+``previous_weights`` at each rebalance; execution-constrained blocks outside
+warmup or the evaluation update context remain ambiguous and are rejected.
+
+Input blocks must be finite with returns strictly greater than -1. By default,
+asset names and order remain fixed and an internal failure requires a fresh ``fit``.
+``universe_policy="restart"`` aligns reordered named columns and resets the kernel
+and prior when membership changes. Observation history restarts with the new
+universe. Use scalar or named asset parameters and named execution holdings;
+removed holdings still consume turnover and incur Portfolio liquidation costs.
+This does not infer membership from missing data or transport adaptive state.
+
+``recovery="rollback"`` restores complete learning state after a failed block and
+raises so the caller can correct and retry it. ``recovery="previous_weights"``
+additionally holds supplied actual holdings on allocation failures. The rejected
+block is not learned; inspect ``last_update_consumed_`` and ``recovery_error_``.
+Validation and prior errors always raise. Recovery copies learned state and cannot
+undo external effects in custom estimators. ``store_weights=False`` disables
+weight history and reduces copying overhead.
+
 Metadata for evaluation goes through ``model_selection.online_predict``; the
 legacy ``fit_predict`` convenience method does not accept evaluation metadata.
-
-Input blocks must be finite, have returns strictly greater than -1, and retain the
-same asset names and ordering. Invalid blocks are rejected before their valid prefix
-is consumed. After an update fails internally, prediction and continuation are
-blocked until ``fit`` resets all learning state. Automatic fallback, transactional
-rollback, missing/bankrupt asset handling, dynamic universes and larger evaluation
-windows remain separate extensions. ``store_weights=False`` disables diagnostic
-history; it does not change execution accounting.

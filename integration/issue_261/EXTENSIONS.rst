@@ -52,3 +52,34 @@ may need a new historical warmup before it can supply a finite risk estimate.
 This supports explicit universe changes between calls. It does not infer membership
 from missing returns or AssetPanel masks, nor transport adaptive matrices or prior
 statistics between universes.
+
+Larger evaluation windows
+-------------------------
+
+``online_predict`` and ``online_score`` now accept contiguous multi-period windows
+for the online families. One target is executed per window. Once the window closes,
+its observations update the learner causally and only the final update makes the
+next executable decision. Intermediate learner targets are diagnostic, not trades.
+The optional prior updates on every observation, with finite covariance required
+at the final decision. OnlineGridSearch applies the same rule during final refit.
+
+``weight_drift=True`` gives buy-and-hold execution inside a window. With the default
+False, Portfolio retains its constant-weight return convention. End-of-window
+holdings anchor the next allocation, and transaction costs are charged by Portfolio.
+Purged/gapped execution remains rejected. Direct constrained partial_fit blocks
+still require explicit execution information and are rejected outside warmup.
+
+Validation of the three extensions
+----------------------------------
+
+The full repository suite passed 10,804 tests, with one skipped and one expected
+failure. After the final universe validation/recovery fixes, all 924 affected online
+optimization and online model-selection tests passed again, with one expected
+failure. The runnable example produced 50 periods for daily plain EG, daily causal
+variance-constrained EG and five-period-window EG.
+
+Ruff lint and formatting checks pass (602 files), and changed-module numpydoc
+presence checks pass. Type checking reports only the existing upstream
+``AssetPanel.fields`` read-only override error in
+``src/skfolio/containers/_asset_panel/_view.py:233``; no extension diagnostics remain.
+No commits have been pushed.

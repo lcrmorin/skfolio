@@ -74,10 +74,14 @@ constrained_portfolio = online_predict(
 # %%
 # Scope
 # =====
-# This version requires finite returns greater than -1 and a fixed asset universe.
-# Use a fresh ``fit`` after a numerical failure or universe change. Direct blocks
-# with turnover or transaction-cost decisions need row-aligned holdings and are
-# rejected outside warmup. Evaluation windows larger than one period remain
-# outside this draft's execution contract.
+# Returns must be finite and greater than -1. Named universe changes can opt into
+# ``universe_policy="restart"``; failures can opt into ``recovery="rollback"``.
+# Larger ``test_size`` values execute one target per window and learn the completed
+# window before the next rebalance. Direct execution-constrained blocks outside
+# warmup still require explicit row-aligned holdings.
 print("EG evaluation periods:", len(portfolio.returns))
 print("EG with causal variance constraint:", len(constrained_portfolio.returns))
+
+# Five-period rebalancing, with holdings drifting between decisions.
+window_portfolio = online_predict(model, X, warmup_size=10, test_size=5)
+print("EG five-period-window evaluation periods:", len(window_portfolio.returns))
